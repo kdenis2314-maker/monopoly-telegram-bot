@@ -612,4 +612,4 @@ def calculate_rent(game, property_idx, owner_id):
     cell = BOARD[property_idx]
     state = game['board_state'][property_idx]
     
-    if cell['type'] =
+    if cell['type'] =        
