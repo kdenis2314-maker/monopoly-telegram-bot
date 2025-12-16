@@ -202,7 +202,7 @@ async def telegram_webhook():
 # ========== ОСНОВНОЙ КОД БОТА ==========
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from telegram.ext._app import ApplicationBuilder # Добавлен импорт ApplicationBuilder
+from telegram.ext import ApplicationBuilder
 from telegram.error import TelegramError
 
 # ... (Остальные глобальные переменные и настройки) ...
