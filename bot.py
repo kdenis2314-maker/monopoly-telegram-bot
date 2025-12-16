@@ -18,17 +18,28 @@ from flask import Flask, request
 # Создаем Flask приложение
 flask_app = Flask(__name__)
 
-# ========== НАСТРОЙКИ ДЛЯ WEBHOOK (RENDER) ==========
-# Токен бота берем из переменных окружения
-TOKEN = os.environ.get('BOT_TOKEN')
-# Render автоматически устанавливает этот URL
-WEBHOOK_URL_BASE = os.environ.get('RENDER_EXTERNAL_URL', 'https://ваш-проект.onrender.com') 
-# Путь для вебхука должен быть уникальным и безопасным (используем токен)
+# ============ НАСТРОЙКИ ДЛЯ WEBHOOK (RENDER) ============
+
+ 1. Токен бота берем из переменных окружения
+TOKEN = os.environ.get('BOT_TOKEN') 
+if not TOKEN:
+    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
+
+ 2. Render автоматически устанавливает URL. Используем ваш домен как резервный.
+RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
+WEBHOOK_URL_BASE = os.environ.get('RENDER_EXTERNAL_URL', RENDER_DOMAIN)
+
+ 3. Путь для вебхука (должен быть уникальным)
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
-# Полный URL для установки Webhook на стороне Telegram
-WEBHOOK_URL = f"{WEBHOOk_URL_BASE}{WEBHOOK_PATH}"
-# Порт, который будет слушать Flask (предоставляется Render)
+
+ 4. Полный URL для установки Webhook на стороне Telegram
+WEBHOOK_URL = f"{WEBHOOK_URL_BASE}{WEBHOOK_PATH}" 
+
+ 5. Порт, который будет слушать Flask (предоставляется Render)
 PORT = int(os.environ.get('PORT', 10000))
+
+# ========================================================
+
 
 # Глобальная переменная для объекта Application
 application = None
