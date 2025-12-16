@@ -1,6 +1,6 @@
-        """
+"""
 🎩 МОНОПОЛИЯ ПРЕМИУМ - только для групп 🎩
-Версия для Render.com с Flask для активности
+Версия для Render.com с Webhook
 """
 
 import os
@@ -12,16 +12,36 @@ from datetime import datetime
 from typing import Dict, List
 from threading import Thread
 
-# ========== FLASK ДЛЯ АКТИВНОСТИ ==========
+# ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 from flask import Flask, request
 
-# Создаем Flask приложение для health checks
+# Создаем Flask приложение
 flask_app = Flask(__name__)
 
+# ========== НАСТРОЙКИ ДЛЯ WEBHOOK (RENDER) ==========
+# Токен бота берем из переменных окружения
+TOKEN = os.environ.get('BOT_TOKEN')
+# Render автоматически устанавливает этот URL
+WEBHOOK_URL_BASE = os.environ.get('RENDER_EXTERNAL_URL', 'https://ваш-проект.onrender.com') 
+# Путь для вебхука должен быть уникальным и безопасным (используем токен)
+WEBHOOK_PATH = f"/webhook/{TOKEN}"
+# Полный URL для установки Webhook на стороне Telegram
+WEBHOOK_URL = f"{WEBHOOk_URL_BASE}{WEBHOOK_PATH}"
+# Порт, который будет слушать Flask (предоставляется Render)
+PORT = int(os.environ.get('PORT', 10000))
+
+# Глобальная переменная для объекта Application
+application = None
+
+# ========== FLASK МАРШРУТЫ ==========
 @flask_app.route('/')
 def home():
     """Основная страница для проверки работы"""
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Проверка статуса Application (если она была инициализирована)
+    app_status = "✅ Active" if application else "❌ Initializing..."
+    
     return f"""
     <!DOCTYPE html>
     <html>
@@ -100,7 +120,7 @@ def home():
         <div class="container">
             <h1><span class="emoji">🎩</span> Монополия Telegram Bot</h1>
             
-            <div class="status">✅ Бот работает нормально</div>
+            <div class="status">Статус бота: {app_status}</div>
             
             <div class="stats">
                 <div class="stat-item">
@@ -110,37 +130,22 @@ def home():
                 </div>
                 <div class="stat-item">
                     <div class="emoji">🚀</div>
-                    <h3>Статус</h3>
-                    <p>Активен 24/7</p>
+                    <h3>Режим</h3>
+                    <p>Webhook (Render)</p>
                 </div>
                 <div class="stat-item">
-                    <div class="emoji">⚡</div>
-                    <h3>Пинг</h3>
-                    <p>0.0 сек</p>
+                    <div class="emoji">📊</div>
+                    <h3>Игр в памяти</h3>
+                    <p>{len(games_storage) if 'games_storage' in globals() else 0}</p>
                 </div>
             </div>
             
             <div class="info">
-                <h2>📱 Как начать игру:</h2>
-                <ol>
-                    <li>Добавьте бота в группу Telegram</li>
-                    <li>Напишите команду <code>/monopoly</code></li>
-                    <li>Пригласите друзей присоединиться</li>
-                    <li>Начните игру!</li>
-                </ol>
-                
-                <h2>🎮 Особенности:</h2>
-                <ul>
-                    <li>До 6 игроков одновременно</li>
-                    <li>Торговля между игроками</li>
-                    <li>Аукционы на собственность</li>
-                    <li>Дома и отели</li>
-                    <li>Карточки шанса</li>
-                </ul>
-                
                 <h2>🔧 Техническая информация:</h2>
-                <p>Этот бот работает на Render.com с автоматическим пробуждением.</p>
-                <p>Для поддержания активности сервиса используется Flask веб-сервер.</p>
+                <p>Этот бот работает на Render.com в режиме Webhook.</p>
+                <p>Endpoint для Telegram: <code>{WEBHOOK_PATH}</code></p>
+                <p>Внешний URL: <code>{WEBHOOK_URL_BASE}</code></p>
+                <p>Порт: <code>{PORT}</code></p>
             </div>
             
             <footer>
@@ -166,40 +171,42 @@ def ping():
     """Простой пинг для мониторинга"""
     return "pong", 200
 
-def run_flask():
-    """Запускает Flask сервер"""
-    port = int(os.environ.get('PORT', 10000))
-    print(f"🌐 Flask запускается на порту {port}")
-    flask_app.run(host='0.0.0.0', port=port, debug=False, threaded=True, use_reloader=False)
+@flask_app.route(WEBHOOK_PATH, methods=['POST'])
+async def telegram_webhook():
+    """Обрабатывает входящие обновления от Telegram."""
+    
+    # Импорты внутри функции для избежания циклической зависимости
+    from telegram import Update
+    
+    if not application:
+        return "Bot application not initialized", 503
 
-# ========== ИНИЦИАЛИЗАЦИЯ FLASK ==========
-print("=" * 60)
-print("🎩 MONOPOLY TELEGRAM BOT с Flask активатором")
-print(f"🕒 Запуск: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-print("=" * 60)
-
-# Запускаем Flask в фоновом режиме
-try:
-    flask_thread = Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    print("✅ Flask сервер запущен в фоновом режиме")
-except Exception as e:
-    print(f"⚠️ Ошибка запуска Flask: {e}")
+    # Получаем JSON-обновление из POST-запроса
+    update_json = request.get_json(force=True)
+    
+    # Создаем объект Update из JSON
+    update = Update.de_json(update_json, application.bot)
+    
+    # Асинхронно обрабатываем обновление
+    async with application:
+        await application.process_update(update)
+        
+    return "ok" # Telegram ожидает ответ "ok" (HTTP 200)
 
 # ========== ОСНОВНОЙ КОД БОТА ==========
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext._app import ApplicationBuilder # Добавлен импорт ApplicationBuilder
 from telegram.error import TelegramError
 
-# ========== БЕЗОПАСНЫЙ ТОКЕН ==========
-TOKEN = os.environ.get('BOT_TOKEN')
+# ... (Остальные глобальные переменные и настройки) ...
 
 if not TOKEN:
     logging.error("❌ BOT_TOKEN не установлен! Добавьте в Environment Variables")
-    print("❌ Ошибка: BOT_TOKEN не найден!")
-    print("ℹ️ Добавьте переменную BOT_TOKEN в настройках Render")
-    exit(1)
-
+    # Не вызываем exit(1) здесь, чтобы Flask мог запуститься и показать ошибку в логах
+    # print("❌ Ошибка: BOT_TOKEN не найден!")
+    # print("ℹ️ Добавьте переменную BOT_TOKEN в настройках Render")
+    
 # Настройка логирования для Render
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -212,7 +219,7 @@ START_MONEY = 1500
 MAX_PLAYERS = 6
 BOARD_SIZE = 24
 
-# Эмодзи для оформления
+# Эмодзи для оформления (Оставлен как в вашем коде)
 EMOJI = {
     "start": "🚀",
     "property": "🏠",
@@ -231,7 +238,7 @@ EMOJI = {
     "auction": "🔨"
 }
 
-# Игровое поле (красивое с эмодзи)
+# Игровое поле (Оставлено как в вашем коде)
 BOARD = [
     {"name": f"{EMOJI['start']} СТАРТ", "type": "start", "price": 0, "color": "none"},
     {"name": f"{EMOJI['property']} Старая дорога", "type": "property", "price": 60, "color": "brown", "rent": [2, 10, 30, 90, 160, 250]},
@@ -320,7 +327,8 @@ def get_build_keyboard(property_idx, player_id):
         [InlineKeyboardButton(f"🏨 Построить отель (${hotel_price})", callback_data=f"build_hotel_{property_idx}_{player_id}")],
         [InlineKeyboardButton(f"↩️ Назад", callback_data=f"build_back_{player_id}")]
     ])
-# ===================== ОСНОВНЫЕ ФУНКЦИИ =====================
+
+# ===================== ОСНОВНЫЕ ФУНКЦИИ (Продолжение в Части 2) =====================# ===================== ОСНОВНЫЕ ФУНКЦИИ (Продолжение из Части 1) =====================
 async def private_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /start в личных сообщениях"""
     user = update.effective_user
@@ -523,7 +531,9 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 👇 Присоединяйтесь или начинайте игру!""",
         parse_mode='Markdown',
         reply_markup=get_lobby_keyboard(chat_id)
-    )async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    )
+
+async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало игры"""
     query = update.callback_query
     await query.answer()
@@ -650,7 +660,7 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """
     
     # Обработка клетки
-    if cell['type'] == 'property':
+    if cell['type'] == 'property' or cell['type'] == 'railroad' or cell['type'] == 'utility':
         owner = game['board_state'][new_position]['owner']
         if owner is None:
             # Свободная собственность
@@ -948,7 +958,10 @@ async def trade_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤝 *ТОРГОВЛЯ*\n\nВыберите игрока для торговли:",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(buttons)
-)async def build_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+)
+
+# ===================== ФУНКЦИИ СТРОИТЕЛЬСТВА (Продолжение в Части 3) =====================# ===================== ФУНКЦИИ СТРОИТЕЛЬСТВА И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (Продолжение из Части 2) =====================
+async def build_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Меню строительства"""
     query = update.callback_query
     await query.answer()
@@ -994,13 +1007,13 @@ async def trade_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buttons = []
     for prop_idx, cell, houses in buildable_properties:
         house_price = 50
-        hotel_price = 200 if houses == 4 else 0
+        hotel_price = 200 # Стоимость отеля
         
         if houses < 4:
             button_text = f"🏠 {cell['name']} (дома: {houses}) - ${house_price}"
             callback_data = f"build_house_{prop_idx}_{player_id}"
         elif houses == 4:
-            button_text = f"🏨 {cell['name']} - отель ${hotel_price}"
+            button_text = f"🏨 {cell['name']} - отель (${hotel_price})"
             callback_data = f"build_hotel_{prop_idx}_{player_id}"
         else:
             continue
@@ -1333,7 +1346,10 @@ def get_chance_card(player, game):
         player['in_jail'] = True
         player['position'] = 9  # Тюрьма
     
-    return cardasync def next_turn(game, chat_id, context):
+    return card
+
+# ===================== ЛОГИКА ПЕРЕХОДА И ЗАВЕРШЕНИЯ (Продолжение в Части 4) =====================# ===================== ЛОГИКА ПЕРЕХОДА И ЗАВЕРШЕНИЯ (Продолжение из Части 3) =====================
+async def next_turn(game, chat_id, context):
     """Переход к следующему игроку"""
     if not game['turn_order']:
         return
@@ -1681,7 +1697,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Все действия в игре выполняются через кнопки под сообщениями.
 
 💰 *Экономика игры:*
-• Стартовый капитал: ${START_MONEY}
+• Стартовый капитал: ${START_MONONEY}
 • Проход старта: $200
 • Тюремный штраф: $50 
 
@@ -1691,8 +1707,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 *Для начала игры добавьте бота в группу и напишите /monopoly*""",
         parse_mode='Markdown'
-)def main():
-    """Запуск бота"""
+)
+def main():
+    """
+    Инициализирует Application, регистрирует хэндлеры и устанавливает Webhook.
+    Не запускает Polling, так как Flask/Gunicorn берет на себя роль сервера.
+    """
+    global application
+    
+    if not TOKEN:
+        logger.error("❌ BOT_TOKEN не установлен. Инициализация Webhook невозможна.")
+        return
+
     # Создаем Application
     application = Application.builder().token(TOKEN).build()
     
@@ -1734,32 +1760,30 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Обработчик ошибок
     application.add_error_handler(error_handler)
     
-    # Запускаем бота
-    logger.info("✅ Бот Монополия запускается на Render с Flask...")
+    # --- НАСТРОЙКА WEBHOOK ---
+    try:
+        # Устанавливаем Webhook на сервере Telegram
+        application.bot.set_webhook(url=WEBHOOK_URL)
+        logger.info(f"✅ Webhook успешно установлен на URL: {WEBHOOK_URL}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при установке Webhook: {e}")
+
+    logger.info("✅ Бот Монополия настроен для Render с Webhook.")
     logger.info(f"📊 Всего игр в памяти: {len(games_storage)}")
-    logger.info(f"🌐 Flask сервер работает на порту {os.environ.get('PORT', 10000)}")
-    logger.info(f"🔑 Токен: {'установлен' if TOKEN else 'НЕ УСТАНОВЛЕН!'}")
     
     print("\n" + "="*60)
-    print("🎩 МОНОПОЛИЯ ТЕЛЕГРАМ БОТ ГОТОВ К РАБОТЕ!")
+    print("🎩 МОНОПОЛИЯ ТЕЛЕГРАМ БОТ (WEBHOOK) ГОТОВ К ЗАПУСКУ GUNICORN!")
     print("="*60)
-    print(f"🕒 Время запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"🌐 Веб-интерфейс: https://ваш-проект.onrender.com")
-    print(f"🏥 Health check: https://ваш-проект.onrender.com/health")
-    print(f"📊 Статус: https://ваш-проект.onrender.com/status")
-    print("="*60)
-    print("📱 Тестирование команд:")
-    print("• /start - в личке с ботом")
-    print("• /monopoly - в группе с ботом")
-    print("• /help - справка по командам")
+    print(f"🕒 Время инициализации: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🌐 Ожидаемый Webhook URL: {WEBHOOK_URL}")
+    print(f"🔑 Токен: {'установлен' if TOKEN else 'НЕ УСТАНОВЛЕН!'}")
     print("="*60 + "\n")
     
-    # Запускаем polling
-    application.run_polling(
-        allowed_updates=Update.ALL_UPDATES,
-        drop_pending_updates=True,
-        close_loop=False
-    )
 
 if __name__ == '__main__':
+    # В режиме Webhook, main() вызывается для настройки Application.
+    # Фактический запуск веб-сервера (flask_app) будет осуществляться Gunicorn.
     main()
+        
+
+                       
