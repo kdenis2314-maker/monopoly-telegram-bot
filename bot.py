@@ -1719,15 +1719,19 @@ def main():
     if not TOKEN:
         return
 
-    # 1. Сборка приложения
     application = Application.builder().token(TOKEN).build()
     
-    # 2. Регистрация ВСЕХ хендлеров
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(application.initialize())
+    loop.run_until_complete(application.start()) # Добавлено со скриншота
+
+    # Команды
     application.add_handler(CommandHandler("start", private_start))
     application.add_handler(CommandHandler("monopoly", group_monopoly))
     application.add_handler(CommandHandler("help", help_command))
-    
-    # Регистрация кнопок
+
+    # Кнопки (Убедитесь, что отступ ровно 4 пробела)
     application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
     application.add_handler(CallbackQueryHandler(start_game, pattern="^start_"))
     application.add_handler(CallbackQueryHandler(roll_dice, pattern="^roll_"))
@@ -1742,23 +1746,8 @@ def main():
     application.add_handler(CallbackQueryHandler(how_to_play, pattern="how_to_play"))
     application.add_handler(CallbackQueryHandler(cancel_game, pattern="^cancel_"))
 
-    # 3. Асинхронная инициализация
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(application.initialize())
-    loop.run_until_complete(application.start()) # Важно запустить!
-    
-    # 4. Установка Webhook
-    loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
-    logger.info(f"✅ Webhook set to: {WEBHOOK_URL}")
-
-# Запускаем инициализацию перед Flask
-main()
-
-if __name__ == '__main__':
-    # Flask запускается в основном потоке
-    flask_app.run(host='0.0.0.0', port=PORT)
-
-
-        
-
-                       
+    try:
+        loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
+        logger.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка вебхука: {e}")
