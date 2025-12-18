@@ -2667,6 +2667,84 @@ def main():
         import traceback
         traceback.print_exc()
 
+# ========== ОТЛАДОЧНЫЕ МАРШРУТЫ ==========
+@flask_app.route('/debug_bot')
+def debug_bot():
+    """Отладочная информация о состоянии бота"""
+    try:
+        import json
+        
+        info = {
+            "TOKEN_exists": bool(TOKEN),
+            "TOKEN_length": len(TOKEN) if TOKEN else 0,
+            "application_exists": application is not None,
+            "application_type": type(application).__name__ if application else "None",
+            "application_has_bot": hasattr(application, 'bot') if application else False,
+            "bot_is_none": application.bot is None if (application and hasattr(application, 'bot')) else True,
+            "games_count": len(games_storage),
+            "web_logs_count": len(web_logs)
+        }
+        
+        # Безопасное получение username бота
+        if application and hasattr(application, 'bot') and application.bot:
+            try:
+                info["bot_username"] = application.bot.username
+            except:
+                info["bot_username"] = "ERROR_GETTING_USERNAME"
+        else:
+            info["bot_username"] = "NO_BOT"
+        
+        return json.dumps(info, indent=2, ensure_ascii=False, default=str), 200, {'Content-Type': 'application/json'}
+    
+    except Exception as e:
+        return json.dumps({"error": str(e)}, indent=2), 500
+
+@flask_app.route('/init_now')
+def init_now():
+    """Немедленная инициализация бота"""
+    try:
+        global application
+        
+        if application is not None:
+            return "❌ Бот уже инициализирован (application is not None)"
+        
+        if not TOKEN:
+            return "❌ BOT_TOKEN не установлен"
+        
+        # Импорты
+        from telegram.ext import Application, CommandHandler
+        import asyncio
+        
+        add_web_log("🔧 РУЧНАЯ ИНИЦИАЛИЗАЦИЯ БОТА...", "INFO")
+        
+        # Создаем application
+        application = Application.builder().token(TOKEN).build()
+        add_web_log("✅ Application создан", "INFO")
+        
+        # Добавляем обработчики
+        application.add_handler(CommandHandler("start", private_start))
+        application.add_handler(CommandHandler("help", help_command))
+        add_web_log("✅ Обработчики добавлены", "INFO")
+        
+        # Инициализируем
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        loop.run_until_complete(application.initialize())
+        loop.run_until_complete(application.start())
+        
+        add_web_log("✅ Бот запущен!", "INFO")
+        
+        # Проверяем
+        if application and application.bot:
+            return f"✅ Бот успешно инициализирован! Username: @{application.bot.username}"
+        else:
+            return "⚠️ Application создан, но bot = None"
+        
+    except Exception as e:
+        error_msg = f"❌ Ошибка: {str(e)}"
+        add_web_log(error_msg, "ERROR")
+        return error_msg, 500
 
 # ========== ТОЧКА ВХОДА ==========
 if __name__ == "__main__":
