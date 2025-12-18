@@ -688,33 +688,42 @@ def init_bot_sync():
     global application
     
     if application is not None:
+        add_web_log("✅ Бот уже инициализирован", "INFO")
         return True
     
     if not TOKEN:
-        add_web_log("❌ Нет BOT_TOKEN", "ERROR")
+        add_web_log("❌ BOT_TOKEN не установлен!", "ERROR")
         return False
     
     try:
-        add_web_log("🤖 Инициализация бота...", "INFO")
+        add_web_log("🤖 ЗАПУСК ИНИЦИАЛИЗАЦИИ БОТА", "INFO")
         
-        # Минимальная инициализация
+        # 1. Создаем application
         application = Application.builder().token(TOKEN).build()
+        add_web_log("✅ Application создан", "INFO")
         
-        # Только ОСНОВНЫЕ обработчики
+        # 2. Только САМЫЕ ВАЖНЫЕ обработчики
         application.add_handler(CommandHandler("start", private_start))
         application.add_handler(CommandHandler("help", help_command))
         
-        # Инициализируем
+        add_web_log("✅ Обработчики добавлены", "INFO")
+        
+        # 3. Инициализируем
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(application.initialize())
-        loop.run_until_complete(application.start())
         
+        loop.run_until_complete(application.initialize())
         add_web_log("✅ Бот инициализирован", "INFO")
+        
+        loop.run_until_complete(application.start())
+        add_web_log("✅ Бот запущен", "INFO")
+        
         return True
         
     except Exception as e:
-        add_web_log(f"❌ Ошибка инициализации бота: {e}", "ERROR")
+        add_web_log(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}", "ERROR")
+        import traceback
+        traceback.print_exc()
         return False
         
 # ========== ОСНОВНОЙ КОД БОТА ==========
