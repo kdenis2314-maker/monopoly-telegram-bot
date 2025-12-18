@@ -705,12 +705,6 @@ def telegram_webhook():
     # ВСЕГДА возвращаем OK, чтобы Telegram не считал вебхук сломанным
     return "ok", 200
         
-    except Exception as e:
-        error_msg = f"Критическая ошибка в вебхуке: {str(e)}"
-        add_web_log(error_msg, "ERROR")
-        logger.error(error_msg, exc_info=True)
-        return "error", 500
-
 def init_bot_sync():
     """Синхронная инициализация бота"""
     global application
