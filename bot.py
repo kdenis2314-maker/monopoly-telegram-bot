@@ -36,35 +36,47 @@ WEBHOOK_PATH = '/webhook'  # ДОБАВИТЬ ЭТУ СТРОКУ
 WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"  # ДОБАВИТЬ ЭТУ СТРОКУ
 PORT = int(os.environ.get('PORT', 10000))  # ДОБАВИТЬ ЭТУ СТРОКУ
 
-30    TOKEN = os.environ.get('BOT_TOKEN')
-31    if not TOKEN:
-32        raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
-33    
-34    RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
-35    WEBHOOK_PATH = '/webhook'  # ДОБАВИТЬ ЭТУ СТРОКУ
-36    WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"  # Исправлено: {WEBHOOK_PATH}
-37    PORT = int(os.environ.get('PORT', 10000))  # ДОБАВИТЬ ЭТУ СТРОКУ
-38    
-39    # --- FLASK МАРШРУТЫ ---
-40    @flask_app.route('/ping')
-41    def ping():
-42        return "pong", 200
-43    
-44    @flask_app.route(WEBHOOK_PATH, methods=['POST'])
-45    async def telegram_webhook():
-46        from telegram import Update
-47        if not application:  # Ошибка: application еще не определена
-48            return "Bot application not initialized", 503
-49    
-50        try:
-51            update_json = request.get_json(force=True)
-52            # Создаем объект Update и прокидываем его в очередь бота
-53            update = Update.de_json(update_json, application.bot)
-54            await application.update_queue.put(update)
-55            return "ok", 200
-56        except Exception as e:
-57            logger.error(f"Ошибка вебхука: {e}")  # Исправлено: {e}
-58            return "error", 500
+TOKEN = os.environ.get('BOT_TOKEN')
+if not TOKEN:       
+    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
+   
+RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
+WEBHOOK_PATH = '/webhook' # ДОБАВИТЬ ЭТУ СТРОКУ
+WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}" # Исправлено: {WEBHOOK_PATH}
+PORT = int(os.environ.get('PORT', 10000)) # ДОБАВИТЬ ЭТУ СТРОКУ
+
+TOKEN = os.environ.get('BOT_TOKEN')
+if not TOKEN:
+    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
+
+# Удалить эти повторяющиеся строки (они уже есть выше):
+# RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
+# WEBHOOK_PATH = '/webhook' # ДОБАВИТЬ ЭТУ СТРОКУ
+# WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}" # Исправлено: {WEBHOOK_PATH}
+# PORT = int(os.environ.get('PORT', 10000)) # ДОБАВИТЬ ЭТУ СТРОКУ
+
+# --- FLASK МАРШРУТЫ ---
+@flask_app.route('/ping')
+def ping():
+    return "pong", 200
+
+@flask_app.route(WEBHOOK_PATH, methods=['POST'])
+async def telegram_webhook():
+    from telegram import Update
+    if not application: # Ошибка: application еще не определена
+    return "Bot application not initialized", 503
+
+try:
+    update_json = request.get_json(force=True)
+    # Создаем объект Update и прокидываем его в очередь бота
+    update = Update.de_json(update_json, application.bot)
+    await application.update_queue.put(update)
+    return "ok", 200
+except Exception as e:
+    logger.error(f"Ошибка вебхука: {e}") # Исправлено: {e}
+    return "error", 500
+
+# --- ОСНОВНОЙ КОД БОТА ---
 
 
 # ========== ОСНОВНОЙ КОД БОТА ==========
