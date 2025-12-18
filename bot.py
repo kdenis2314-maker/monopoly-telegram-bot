@@ -24,7 +24,7 @@ def keep_alive():
 
 # --- ЛОГИКА БОТА ---
 # Вставь свой токен сюда
-TOKEN = "8443089209:AAHhVTj-nhNdgaVx99-sHTQ_C2AicH_KSXI"
+TOKEN = "8564341950:AAEV17lzkVwGuczj6xtI-eRtoMHMfCRvrog"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
