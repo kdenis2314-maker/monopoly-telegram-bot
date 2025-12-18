@@ -25,35 +25,9 @@ if not TOKEN:
     raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
 
 RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
-# ============ НАСТРОЙКИ ДЛЯ WEBHOOK (RENDER) ============
-
-TOKEN = os.environ.get('BOT_TOKEN') 
-if not TOKEN:
-    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
-
-RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
-WEBHOOK_PATH = '/webhook'  # ДОБАВИТЬ ЭТУ СТРОКУ
-WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"  # ДОБАВИТЬ ЭТУ СТРОКУ
-PORT = int(os.environ.get('PORT', 10000))  # ДОБАВИТЬ ЭТУ СТРОКУ
-
-TOKEN = os.environ.get('BOT_TOKEN')
-if not TOKEN:       
-    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
-   
-RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
-WEBHOOK_PATH = '/webhook' # ДОБАВИТЬ ЭТУ СТРОКУ
-WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}" # Исправлено: {WEBHOOK_PATH}
-PORT = int(os.environ.get('PORT', 10000)) # ДОБАВИТЬ ЭТУ СТРОКУ
-
-TOKEN = os.environ.get('BOT_TOKEN')
-if not TOKEN:
-    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
-
-# Удалить эти повторяющиеся строки (они уже есть выше):
-# RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
-# WEBHOOK_PATH = '/webhook' # ДОБАВИТЬ ЭТУ СТРОКУ
-# WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}" # Исправлено: {WEBHOOK_PATH}
-# PORT = int(os.environ.get('PORT', 10000)) # ДОБАВИТЬ ЭТУ СТРОКУ
+WEBHOOK_PATH = '/webhook'
+WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"
+PORT = int(os.environ.get('PORT', 10000))
 
 # --- FLASK МАРШРУТЫ ---
 @flask_app.route('/ping')
@@ -138,21 +112,21 @@ def index():
 # ==== КОНЕЦ ВСТАВЛЯЕМОГО КОДА ====
 
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
-async def telegram_webhook():
+def telegram_webhook():
     # ... ваш существующий код ...
     from telegram import Update
-    if not application:
+    if 'application' not in globals():
         return "Bot application not initialized", 503
     
     try:
         update_json = request.get_json(force=True)
         # Создаем объект Update
         update = Update.de_json(update_json, application.bot)
-        # Обрабатываем update
-        await application.process_update(update)
+        # Обрабатываем update асинхронно
+        asyncio.run(application.process_update(update))
         return "ok", 200
     except Exception as e:
-        logger.error(f"Ошибка вебхука: {e}")
+        print(f"Ошибка вебхука: {e}")
         return "error", 500
 # --- ОСНОВНОЙ КОД БОТА ---
 
@@ -922,9 +896,397 @@ async def trade_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤝 *ТОРГОВЛЯ*\n\nВыберите игрока для торговли:",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(buttons)
-)
+    )
 
-# ===================== ФУНКЦИИ СТРОИТЕЛЬСТВА (Продолжение в Части 3) =====================# ===================== ФУНКЦИИ СТРОИТЕЛЬСТВА И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (Продолжение из Части 2) =====================
+async def trade_with_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Торговля с выбранным игроком"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    other_player_id = int(data[2])
+    player_id = int(data[3])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    if game['current_player'] != player_id:
+        await query.answer("❌ Сейчас не ваш ход!")
+        return
+    
+    player = game['players'][player_id]
+    other_player = game['players'][other_player_id]
+    
+    # Создаем предложение торговли
+    game['trades'].append({
+        'from_player': player_id,
+        'to_player': other_player_id,
+        'money_offer': 0,
+        'properties_offer': [],
+        'money_request': 0,
+        'properties_request': [],
+        'status': 'pending'
+    })
+    
+    await query.edit_message_text(
+        f"🤝 *ПРЕДЛОЖЕНИЕ ТОРГОВЛИ*\n\n"
+        f"👤 Вы торгуете с: {other_player['color']} @{other_player['username']}\n"
+        f"💰 Ваш баланс: ${player['balance']}\n"
+        f"💰 Его баланс: ${other_player['balance']}\n\n"
+        f"Выберите что предложить:",
+        parse_mode='Markdown',
+        reply_markup=get_trade_keyboard(player_id)
+    )
+
+async def trade_money_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Предложение денег в торговле"""
+    query = update.callback_query
+    await query.answer()
+    
+    player_id = int(query.data.split('_')[2])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    player = game['players'][player_id]
+    
+    # Находим активную торговлю
+    active_trade = None
+    for trade in game['trades']:
+        if trade['from_player'] == player_id and trade['status'] == 'pending':
+            active_trade = trade
+            break
+    
+    if not active_trade:
+        await query.answer("❌ Нет активной торговли!")
+        return
+    
+    await query.edit_message_text(
+        f"💵 *ПРЕДЛОЖЕНИЕ ДЕНЕГ*\n\n"
+        f"💰 Ваш баланс: ${player['balance']}\n"
+        f"Введите сумму которую хотите предложить:",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ Назад", callback_data=f"trade_back_{player_id}")]
+        ])
+    )
+    
+    # Сохраняем состояние для ввода суммы
+    context.user_data['waiting_for_trade_money'] = True
+    context.user_data['trade_player_id'] = player_id
+    context.user_data['trade_chat_id'] = chat_id
+
+async def trade_properties_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Предложение имущества в торговле"""
+    query = update.callback_query
+    await query.answer()
+    
+    player_id = int(query.data.split('_')[2])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    player = game['players'][player_id]
+    
+    if not player['properties']:
+        await query.answer("❌ У вас нет собственности для обмена!")
+        return
+    
+    # Находим активную торговлю
+    active_trade = None
+    for trade in game['trades']:
+        if trade['from_player'] == player_id and trade['status'] == 'pending':
+            active_trade = trade
+            break
+    
+    if not active_trade:
+        await query.answer("❌ Нет активной торговли!")
+        return
+    
+    # Создаем клавиатуру с имуществом
+    buttons = []
+    for prop_idx in player['properties']:
+        cell = BOARD[prop_idx]
+        buttons.append([
+            InlineKeyboardButton(
+                f"{cell['name']} (${cell['price']})",
+                callback_data=f"trade_prop_select_{prop_idx}_{player_id}"
+            )
+        ])
+    
+    buttons.append([InlineKeyboardButton("✅ Завершить выбор", callback_data=f"trade_props_done_{player_id}")])
+    buttons.append([InlineKeyboardButton("↩️ Назад", callback_data=f"trade_back_{player_id}")])
+    
+    await query.edit_message_text(
+        f"🏠 *ПРЕДЛОЖЕНИЕ ИМУЩЕСТВА*\n\n"
+        f"Выберите собственность которую хотите предложить:",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+async def trade_prop_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Выбор конкретного имущества для торговли"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    prop_idx = int(data[3])
+    player_id = int(data[4])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    # Находим активную торговлю
+    active_trade = None
+    for trade in game['trades']:
+        if trade['from_player'] == player_id and trade['status'] == 'pending':
+            active_trade = trade
+            break
+    
+    if not active_trade:
+        await query.answer("❌ Нет активной торговли!")
+        return
+    
+    # Добавляем или удаляем имущество из предложения
+    if prop_idx in active_trade['properties_offer']:
+        active_trade['properties_offer'].remove(prop_idx)
+        await query.answer("✅ Имущество удалено из предложения")
+    else:
+        active_trade['properties_offer'].append(prop_idx)
+        await query.answer("✅ Имущество добавлено в предложение")
+    
+    # Обновляем список выбранного имущества
+    selected_props = "\n".join([f"• {BOARD[idx]['name']}" for idx in active_trade['properties_offer']]) if active_trade['properties_offer'] else "Нет выбранного имущества"
+    
+    # Создаем клавиатуру с имуществом
+    buttons = []
+    for prop_idx in game['players'][player_id]['properties']:
+        cell = BOARD[prop_idx]
+        is_selected = prop_idx in active_trade['properties_offer']
+        button_text = f"{'✅ ' if is_selected else ''}{cell['name']} (${cell['price']})"
+        buttons.append([
+            InlineKeyboardButton(
+                button_text,
+                callback_data=f"trade_prop_select_{prop_idx}_{player_id}"
+            )
+        ])
+    
+    buttons.append([InlineKeyboardButton("✅ Завершить выбор", callback_data=f"trade_props_done_{player_id}")])
+    buttons.append([InlineKeyboardButton("↩️ Назад", callback_data=f"trade_back_{player_id}")])
+    
+    await query.edit_message_text(
+        f"🏠 *ПРЕДЛОЖЕНИЕ ИМУЩЕСТВА*\n\n"
+        f"Выберите собственность которую хотите предложить:\n\n"
+        f"📋 *Выбрано:*\n{selected_props}",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+async def trade_props_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Завершение выбора имущества для торговли"""
+    query = update.callback_query
+    await query.answer()
+    
+    player_id = int(query.data.split('_')[3])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    # Находим активную торговлю
+    active_trade = None
+    for trade in game['trades']:
+        if trade['from_player'] == player_id and trade['status'] == 'pending':
+            active_trade = trade
+            break
+    
+    if not active_trade:
+        await query.answer("❌ Нет активной торговли!")
+        return
+    
+    other_player = game['players'][active_trade['to_player']]
+    
+    # Показываем итоговое предложение
+    money_text = f"💰 Деньги: ${active_trade['money_offer']}" if active_trade['money_offer'] > 0 else ""
+    props_text = "🏠 Имущество:\n" + "\n".join([f"• {BOARD[idx]['name']}" for idx in active_trade['properties_offer']]) if active_trade['properties_offer'] else ""
+    
+    await query.edit_message_text(
+        f"🤝 *ВАШЕ ПРЕДЛОЖЕНИЕ*\n\n"
+        f"👤 Для: {other_player['color']} @{other_player['username']}\n\n"
+        f"{money_text}\n{props_text}\n\n"
+        f"Ожидайте ответа от игрока...",
+        parse_mode='Markdown'
+    )
+    
+    # Уведомляем другого игрока
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🤝 *ПРЕДЛОЖЕНИЕ ТОРГОВЛИ*\n\n"
+             f"👤 {game['players'][player_id]['color']} @{game['players'][player_id]['username']} предлагает вам сделку!\n\n"
+             f"{money_text}\n{props_text}\n\n"
+             f"Хотите принять предложение?",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Принять", callback_data=f"trade_accept_{active_trade['to_player']}")],
+            [InlineKeyboardButton("❌ Отклонить", callback_data=f"trade_reject_{active_trade['to_player']}")]
+        ])
+    )
+
+async def trade_accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принятие торгового предложения"""
+    query = update.callback_query
+    await query.answer()
+    
+    player_id = int(query.data.split('_')[2])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    # Находим торговлю где этот игрок получатель
+    active_trade = None
+    for trade in game['trades']:
+        if trade['to_player'] == player_id and trade['status'] == 'pending':
+            active_trade = trade
+            break
+    
+    if not active_trade:
+        await query.answer("❌ Нет активных предложений для вас!")
+        return
+    
+    from_player = game['players'][active_trade['from_player']]
+    to_player = game['players'][active_trade['to_player']]
+    
+    # Проверяем что у игроков достаточно денег
+    if from_player['balance'] < active_trade['money_offer']:
+        await query.answer("❌ У предлагающего недостаточно денег!")
+        return
+    
+    # Выполняем обмен деньгами
+    from_player['balance'] -= active_trade['money_offer']
+    to_player['balance'] += active_trade['money_offer']
+    
+    # Выполняем обмен имуществом
+    for prop_idx in active_trade['properties_offer']:
+        if prop_idx in from_player['properties']:
+            from_player['properties'].remove(prop_idx)
+            to_player['properties'].append(prop_idx)
+            game['board_state'][prop_idx]['owner'] = to_player['id']
+    
+    for prop_idx in active_trade['properties_request']:
+        if prop_idx in to_player['properties']:
+            to_player['properties'].remove(prop_idx)
+            from_player['properties'].append(prop_idx)
+            game['board_state'][prop_idx]['owner'] = from_player['id']
+    
+    # Отмечаем торговлю как выполненную
+    active_trade['status'] = 'accepted'
+    
+    await query.edit_message_text(
+        f"✅ *СДЕЛКА ЗАВЕРШЕНА!*\n\n"
+        f"🤝 Игроки успешно обменялись:\n"
+        f"{from_player['color']} @{from_player['username']} ↔️ {to_player['color']} @{to_player['username']}\n\n"
+        f"💰 Переведено: ${active_trade['money_offer']}\n"
+        f"🏠 Обменяно имущество",
+        parse_mode='Markdown'
+    )
+    
+    # Удаляем завершенные торги
+    game['trades'] = [t for t in game['trades'] if t['status'] != 'accepted']
+
+async def trade_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отклонение торгового предложения"""
+    query = update.callback_query
+    await query.answer()
+    
+    player_id = int(query.data.split('_')[2])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    # Находим и удаляем торговлю
+    for trade in game['trades']:
+        if trade['to_player'] == player_id and trade['status'] == 'pending':
+            game['trades'].remove(trade)
+            break
+    
+    await query.edit_message_text(
+        "❌ *ПРЕДЛОЖЕНИЕ ОТКЛОНЕНО*",
+        parse_mode='Markdown'
+    )
+    
+    # Уведомляем предлагающего
+    from_player_id = trade['from_player'] if 'trade' in locals() else None
+    if from_player_id and from_player_id in game['players']:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"❌ {game['players'][player_id]['color']} @{game['players'][player_id]['username']} отклонил ваше торговое предложение.",
+            parse_mode='Markdown'
+        )
+
+async def trade_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена торговли"""
+    query = update.callback_query
+    await query.answer()
+    
+    player_id = int(query.data.split('_')[2])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    # Удаляем все pending торги этого игрока
+    game['trades'] = [t for t in game['trades'] if not (t['from_player'] == player_id and t['status'] == 'pending')]
+    
+    await query.edit_message_text(
+        "❌ *ТОРГОВЛЯ ОТМЕНЕНА*",
+        parse_mode='Markdown',
+        reply_markup=get_game_keyboard(player_id)
+    )
+
+async def trade_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Назад из меню торговли"""
+    query = update.callback_query
+    await query.answer()
+    
+    player_id = int(query.data.split('_')[2])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    if game['current_player'] == player_id:
+        await query.edit_message_text(
+            f"🎮 *ВАШ ХОД*\n\n"
+            f"{game['players'][player_id]['color']} @{game['players'][player_id]['username']}\n"
+            f"💰 Баланс: ${game['players'][player_id]['balance']}\n"
+            f"📍 Позиция: {BOARD[game['players'][player_id]['position']]['name']}",
+            parse_mode='Markdown',
+            reply_markup=get_game_keyboard(player_id)
+        )
+
+# ===================== ФУНКЦИИ СТРОИТЕЛЬСТВА И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (Продолжение из Части 2) =====================
 async def build_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Меню строительства"""
     query = update.callback_query
@@ -1024,6 +1386,18 @@ async def build_house(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ Недостаточно денег!")
         return
     
+    # Проверяем равномерность строительства
+    color = cell['color']
+    same_color_cells = [i for i, c in enumerate(BOARD) 
+                       if c.get('color') == color and c['type'] == 'property']
+    
+    # Находим минимальное количество домов в этом цвете
+    min_houses = min([game['board_state'][i]['houses'] for i in same_color_cells])
+    
+    if current_houses > min_houses:
+        await query.answer("❌ Сначала постройте дома на других улицах этого цвета!")
+        return
+    
     # Строим дом
     player['balance'] -= house_price
     game['board_state'][property_idx]['houses'] += 1
@@ -1084,6 +1458,29 @@ async def build_hotel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_game_keyboard(player_id)
     )
 
+async def build_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Назад из меню строительства"""
+    query = update.callback_query
+    await query.answer()
+    
+    player_id = int(query.data.split('_')[2])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    if game['current_player'] == player_id:
+        await query.edit_message_text(
+            f"🎮 *ВАШ ХОД*\n\n"
+            f"{game['players'][player_id]['color']} @{game['players'][player_id]['username']}\n"
+            f"💰 Баланс: ${game['players'][player_id]['balance']}\n"
+            f"📍 Позиция: {BOARD[game['players'][player_id]['position']]['name']}",
+            parse_mode='Markdown',
+            reply_markup=get_game_keyboard(player_id)
+        )
+
 async def cancel_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена игры"""
     query = update.callback_query
@@ -1126,14 +1523,17 @@ async def how_to_play(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Только при монополии
 • Дом: $50
 • Отель: $200 (после 4 домов)
+• Стройте равномерно на всех улицах цвета
 
 🤝 *Торговля:*
 • Обменивайтесь улицами и деньгами
 • Только в свой ход
+• Нужно согласие обоих игроков
 
 🔨 *Аукцион:*
 • Если игрок не покупает улицу
 • Все могут предложить цену
+• Выигрывает самая высокая ставка
 
 🎭 *Шанс:*
 • Случайные события
@@ -1169,7 +1569,10 @@ def create_board_visual(game):
             
             # Добавляем дома
             if houses > 0:
-                house_emoji = "🏨" if houses >= 5 else "🏡" * min(houses, 4)
+                if houses >= 5:
+                    house_emoji = "🏨"
+                else:
+                    house_emoji = "🏡" * houses
                 cell_display += house_emoji
             
             line += f"{cell_display:12}"
@@ -1253,7 +1656,7 @@ def check_monopoly(game, player_id, color):
             'darkblue': 'синие'
         }.get(color, color)
         
-        # В реальной игре здесь было бы уведомление
+        # Можно добавить уведомление в чат
         logger.info(f"Игрок {player['username']} собрал монополию {color_name}")
     
     return has_monopoly
@@ -1312,7 +1715,7 @@ def get_chance_card(player, game):
     
     return card
 
-# ===================== ЛОГИКА ПЕРЕХОДА И ЗАВЕРШЕНИЯ (Продолжение в Части 4) =====================# ===================== ЛОГИКА ПЕРЕХОДА И ЗАВЕРШЕНИЯ (Продолжение из Части 3) =====================
+# ===================== ЛОГИКА ПЕРЕХОДА И ЗАВЕРШЕНИЯ (Продолжение из Части 3) =====================
 async def next_turn(game, chat_id, context):
     """Переход к следующему игроку"""
     if not game['turn_order']:
@@ -1472,7 +1875,9 @@ async def auction_property(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'current_bid': cell['price'] // 2,  # Стартовая цена - половина стоимости
         'current_bidder': None,
         'bidders': list(game['players'].keys()),
-        'min_increment': 10
+        'min_increment': 10,
+        'bid_count': 0,
+        'max_bids': 3
     })
     
     auction = game['auctions'][-1]
@@ -1549,6 +1954,7 @@ async def auction_bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Обновляем ставку
     auction['current_bid'] = bid_amount
     auction['current_bidder'] = player_id
+    auction['bid_count'] = 0  # Сбрасываем счетчик пропусков
     
     await query.edit_message_text(
         f"""🔨 *АУКЦИОН*
@@ -1562,7 +1968,90 @@ async def auction_bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_auction_keyboard(property_idx, bid_amount, player_id)
     )
 
-async def end_auction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def auction_custom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Своя ставка на аукционе"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    property_idx = int(data[2])
+    player_id = int(data[3])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    # Находим активный аукцион
+    auction = None
+    for a in game['auctions']:
+        if a['property_idx'] == property_idx:
+            auction = a
+            break
+    
+    if not auction:
+        await query.answer("❌ Аукцион не найден!")
+        return
+    
+    await query.edit_message_text(
+        f"""💎 *СВОЯ СТАВКА*
+
+🏠 {BOARD[property_idx]['name']}
+💰 Текущая ставка: ${auction['current_bid']}
+
+Введите сумму вашей ставки (не менее ${auction['current_bid'] + auction['min_increment']}):""",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ Назад", callback_data=f"auction_back_{property_idx}_{player_id}")]
+        ])
+    )
+    
+    # Сохраняем состояние для ввода суммы
+    context.user_data['waiting_for_auction_bid'] = True
+    context.user_data['auction_property_idx'] = property_idx
+    context.user_data['auction_player_id'] = player_id
+    context.user_data['auction_chat_id'] = chat_id
+
+async def auction_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Назад в аукцион"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    property_idx = int(data[2])
+    player_id = int(data[3])
+    chat_id = query.message.chat.id
+    
+    if chat_id not in games_storage:
+        return
+    
+    game = games_storage[chat_id]
+    
+    # Находим активный аукцион
+    auction = None
+    for a in game['auctions']:
+        if a['property_idx'] == property_idx:
+            auction = a
+            break
+    
+    if not auction:
+        await query.edit_message_text("❌ Аукцион не найден!")
+        return
+    
+    await query.edit_message_text(
+        f"""🔨 *АУКЦИОН*
+
+🏠 {BOARD[property_idx]['name']}
+💰 Текущая ставка: ${auction['current_bid']}
+👤 Текущий лидер: {game['players'][auction['current_bidder']]['color'] if auction['current_bidder'] else 'Нет'}
+
+👇 Сделайте следующую ставку:""",
+        parse_mode='Markdown',
+        reply_markup=get_auction_keyboard(property_idx, auction['current_bid'], player_id)
+    )
+
+async def auction_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Завершение аукциона"""
     query = update.callback_query
     await query.answer()
@@ -1599,6 +2088,9 @@ async def end_auction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winner['properties'].append(property_idx)
         game['board_state'][property_idx]['owner'] = winner_id
         
+        # Проверяем монополию
+        check_monopoly(game, winner_id, cell['color'])
+        
         await query.edit_message_text(
             f"""✅ *АУКЦИОН ЗАВЕРШЕН!*
 
@@ -1623,6 +2115,129 @@ async def end_auction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await asyncio.sleep(2)
     await next_turn(game, chat_id, context)
+
+async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка текстового ввода"""
+    if not update.message:
+        return
+    
+    chat_id = update.message.chat.id
+    user_id = update.message.from_user.id
+    text = update.message.text
+    
+    # Проверяем ожидание суммы для торговли
+    if context.user_data.get('waiting_for_trade_money'):
+        try:
+            amount = int(text)
+            player_id = context.user_data['trade_player_id']
+            trade_chat_id = context.user_data['trade_chat_id']
+            
+            if trade_chat_id not in games_storage:
+                return
+            
+            game = games_storage[trade_chat_id]
+            player = game['players'].get(player_id)
+            
+            if not player:
+                await update.message.reply_text("❌ Игрок не найден!")
+                return
+            
+            if amount <= 0:
+                await update.message.reply_text("❌ Сумма должна быть положительной!")
+                return
+            
+            if amount > player['balance']:
+                await update.message.reply_text("❌ У вас недостаточно денег!")
+                return
+            
+            # Находим активную торговлю
+            active_trade = None
+            for trade in game['trades']:
+                if trade['from_player'] == player_id and trade['status'] == 'pending':
+                    active_trade = trade
+                    break
+            
+            if not active_trade:
+                await update.message.reply_text("❌ Нет активной торговли!")
+                return
+            
+            # Устанавливаем сумму предложения
+            active_trade['money_offer'] = amount
+            
+            # Очищаем состояние
+            context.user_data.pop('waiting_for_trade_money', None)
+            context.user_data.pop('trade_player_id', None)
+            context.user_data.pop('trade_chat_id', None)
+            
+            await update.message.reply_text(
+                f"✅ Сумма ${amount} установлена как предложение!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("↩️ Назад к торговле", callback_data=f"trade_back_{player_id}")]
+                ])
+            )
+            
+        except ValueError:
+            await update.message.reply_text("❌ Пожалуйста, введите число!")
+    
+    # Проверяем ожидание ставки для аукциона
+    elif context.user_data.get('waiting_for_auction_bid'):
+        try:
+            amount = int(text)
+            property_idx = context.user_data['auction_property_idx']
+            player_id = context.user_data['auction_player_id']
+            auction_chat_id = context.user_data['auction_chat_id']
+            
+            if auction_chat_id not in games_storage:
+                return
+            
+            game = games_storage[auction_chat_id]
+            
+            # Находим активный аукцион
+            auction = None
+            for a in game['auctions']:
+                if a['property_idx'] == property_idx:
+                    auction = a
+                    break
+            
+            if not auction:
+                await update.message.reply_text("❌ Аукцион не найден!")
+                return
+            
+            player = game['players'].get(player_id)
+            
+            if not player:
+                await update.message.reply_text("❌ Игрок не найден!")
+                return
+            
+            # Проверяем ставку
+            if amount <= auction['current_bid']:
+                await update.message.reply_text(f"❌ Ставка должна быть выше ${auction['current_bid']}!")
+                return
+            
+            if player['balance'] < amount:
+                await update.message.reply_text("❌ Недостаточно денег для ставки!")
+                return
+            
+            # Обновляем ставку
+            auction['current_bid'] = amount
+            auction['current_bidder'] = player_id
+            auction['bid_count'] = 0
+            
+            # Очищаем состояние
+            context.user_data.pop('waiting_for_auction_bid', None)
+            context.user_data.pop('auction_property_idx', None)
+            context.user_data.pop('auction_player_id', None)
+            context.user_data.pop('auction_chat_id', None)
+            
+            await update.message.reply_text(
+                f"✅ Ваша ставка ${amount} принята!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("↩️ Назад к аукциону", callback_data=f"auction_back_{property_idx}_{player_id}")]
+                ])
+            )
+            
+        except ValueError:
+            await update.message.reply_text("❌ Пожалуйста, введите число!")
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
@@ -1671,8 +2286,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 *Для начала игры добавьте бота в группу и напишите /monopoly*""",
         parse_mode='Markdown'
-)
-    
+    )
+
+# ===================== ОСНОВНАЯ ФУНКЦИЯ =====================
+application = None
+
 def main():
     global application
     if not TOKEN:
@@ -1680,14 +2298,16 @@ def main():
         return
 
     # 1. Создаем объект приложения
-    from telegram.ext import Application, CommandHandler, CallbackQueryHandler
     application = Application.builder().token(TOKEN).build()
 
-    # 2. Регистрируем все ваши обработчики (Handlers)
+    # 2. Регистрируем все обработчики
     # Команды
     application.add_handler(CommandHandler("start", private_start))
     application.add_handler(CommandHandler("monopoly", group_monopoly))
     application.add_handler(CommandHandler("help", help_command))
+    
+    # Обработчик текстовых сообщений
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
 
     # Кнопки (Callback queries)
     application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
@@ -1698,9 +2318,25 @@ def main():
     application.add_handler(CallbackQueryHandler(end_turn, pattern="^end_"))
     application.add_handler(CallbackQueryHandler(check_balance, pattern="^balance_"))
     application.add_handler(CallbackQueryHandler(check_properties, pattern="^props_"))
+    application.add_handler(CallbackQueryHandler(trade_menu, pattern="^trade_menu_"))
+    application.add_handler(CallbackQueryHandler(trade_with_player, pattern="^trade_with_"))
+    application.add_handler(CallbackQueryHandler(trade_money_offer, pattern="^trade_money_"))
+    application.add_handler(CallbackQueryHandler(trade_properties_offer, pattern="^trade_props_"))
+    application.add_handler(CallbackQueryHandler(trade_prop_select, pattern="^trade_prop_select_"))
+    application.add_handler(CallbackQueryHandler(trade_props_done, pattern="^trade_props_done_"))
+    application.add_handler(CallbackQueryHandler(trade_accept, pattern="^trade_accept_"))
+    application.add_handler(CallbackQueryHandler(trade_reject, pattern="^trade_reject_"))
+    application.add_handler(CallbackQueryHandler(trade_cancel, pattern="^trade_cancel_"))
+    application.add_handler(CallbackQueryHandler(trade_back, pattern="^trade_back_"))
     application.add_handler(CallbackQueryHandler(build_menu, pattern="^build_"))
     application.add_handler(CallbackQueryHandler(build_house, pattern="^build_house_"))
     application.add_handler(CallbackQueryHandler(build_hotel, pattern="^build_hotel_"))
+    application.add_handler(CallbackQueryHandler(build_back, pattern="^build_back_"))
+    application.add_handler(CallbackQueryHandler(auction_property, pattern="^auction_"))
+    application.add_handler(CallbackQueryHandler(auction_bid, pattern="^auction_bid_"))
+    application.add_handler(CallbackQueryHandler(auction_custom, pattern="^auction_custom_"))
+    application.add_handler(CallbackQueryHandler(auction_back, pattern="^auction_back_"))
+    application.add_handler(CallbackQueryHandler(auction_end, pattern="^auction_end_"))
     application.add_handler(CallbackQueryHandler(how_to_play, pattern="how_to_play"))
     application.add_handler(CallbackQueryHandler(cancel_game, pattern="^cancel_"))
     
@@ -1708,7 +2344,6 @@ def main():
     application.add_error_handler(error_handler)
 
     # 3. Асинхронная инициализация
-    import asyncio
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -1733,7 +2368,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
-
-
-    
