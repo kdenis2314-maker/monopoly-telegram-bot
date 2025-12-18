@@ -671,41 +671,25 @@ def telegram_webhook():
     return "ok", 200
         
 def init_bot_sync():
-    """Синхронная инициализация бота"""
+    """Минимальная инициализация бота"""
     global application
     
     if application is not None:
-        add_web_log("✅ Бот уже инициализирован", "INFO")
         return True
     
     if not TOKEN:
-        add_web_log("❌ BOT_TOKEN не установлен!", "ERROR")
+        add_web_log("❌ Нет BOT_TOKEN", "ERROR")
         return False
     
     try:
-        add_web_log("🔄 Инициализация бота...", "INFO")
+        add_web_log("🤖 Инициализация бота...", "INFO")
         
-        # Используем Application из уже импортированных модулей
+        # Минимальная инициализация
         application = Application.builder().token(TOKEN).build()
         
-        # Регистрируем обработчики
-        try:
-            application.add_handler(CommandHandler("start", private_start))
-            application.add_handler(CommandHandler("monopoly", group_monopoly))
-            application.add_handler(CommandHandler("help", help_command))
-            
-            # Дополнительные обработчики (минимум для работы)
-            application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
-            application.add_handler(CallbackQueryHandler(start_game, pattern="^start_"))
-            application.add_handler(CallbackQueryHandler(roll_dice, pattern="^roll_"))
-            application.add_handler(CallbackQueryHandler(buy_property, pattern="^buy_"))
-            application.add_handler(CallbackQueryHandler(skip_turn, pattern="^skip_"))
-            application.add_handler(CallbackQueryHandler(end_turn, pattern="^end_"))
-            
-            add_web_log(f"✅ Обработчики зарегистрированы: {len(application.handlers[0])}", "INFO")
-        except Exception as handler_error:
-            add_web_log(f"⚠️ Ошибка регистрации обработчиков: {handler_error}", "WARNING")
-            traceback.print_exc()
+        # Только ОСНОВНЫЕ обработчики
+        application.add_handler(CommandHandler("start", private_start))
+        application.add_handler(CommandHandler("help", help_command))
         
         # Инициализируем
         loop = asyncio.new_event_loop()
@@ -713,14 +697,11 @@ def init_bot_sync():
         loop.run_until_complete(application.initialize())
         loop.run_until_complete(application.start())
         
-        add_web_log("✅ Бот успешно инициализирован!", "INFO")
+        add_web_log("✅ Бот инициализирован", "INFO")
         return True
         
     except Exception as e:
-        error_msg = f"❌ Ошибка инициализации бота: {str(e)}"
-        add_web_log(error_msg, "ERROR")
-        print(f"Ошибка инициализации: {e}")
-        traceback.print_exc()
+        add_web_log(f"❌ Ошибка инициализации бота: {e}", "ERROR")
         return False
         
 # ========== ОСНОВНОЙ КОД БОТА ==========
