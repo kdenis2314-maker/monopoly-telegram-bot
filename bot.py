@@ -773,12 +773,11 @@ BOARD = [
     {"name": f"{EMOJI['parking']} Парковка", "type": "parking", "price": 0, "color": "none"},
     {"name": f"{EMOJI['property']} Пушкинская", "type": "property", "price": 220, "color": "red", "rent": [18, 90, 250, 700, 875, 1050]},
     {"name": f"{EMOJI['railroad']} Вокзал Северный", "type": "railroad", "price": 200, "color": "railroad", "rent": [25, 50, 100, 200]},
-    [{"name": f"{EMOJI['chance']} ШАНС", "type": "chance", "price": 0, "color": "none"},
+    {"name": f"{EMOJI['chance']} ШАНС", "type": "chance", "price": 0, "color": "none"},  # ← Убрал лишнюю [
     {"name": f"{EMOJI['property']} Малая Бронная", "type": "property", "price": 320, "color": "green", "rent": [28, 150, 450, 1000, 1200, 1400]},
     {"name": f"{EMOJI['tax']} Суперналог", "type": "tax", "price": 100, "color": "none"},
     {"name": f"{EMOJI['property']} Тверской бульвар", "type": "property", "price": 400, "color": "darkblue", "rent": [50, 200, 600, 1400, 1700, 2000]},
-]
-
+]  # ← Эта скобка теперь правильно закрывает BOARD
 # Хранилище игр {chat_id: game_data}
 games_storage = {}
 
