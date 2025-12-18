@@ -657,36 +657,53 @@ def clear_logs():
 
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
 def telegram_webhook():
-    """Упрощенный рабочий обработчик вебхука"""
+    """ПРОСТОЙ обработчик вебхука - всегда возвращает OK"""
     try:
         data = request.get_json(force=True)
         update_id = data.get('update_id', 'unknown')
         
-        add_web_log(f"📩 Вебхук получен: update_id={update_id}", "INFO")
-        
         # Логируем информацию о сообщении
         if 'message' in data:
             message = data['message']
-            chat_id = message.get('chat', {}).get('id')
             text = message.get('text', '')
             user = message.get('from', {})
             username = user.get('username', user.get('first_name', 'unknown'))
             chat_type = message.get('chat', {}).get('type', 'unknown')
             
             add_web_log(f"💬 Сообщение от @{username} (чат: {chat_type}): {text[:100]}", "INFO")
-            
-            # Попытка обработать команду /start
-            if text == '/start':
-                add_web_log("✅ Обнаружена команда /start", "INFO")
-                # Здесь будет обработка, но пока просто логируем
+        else:
+            add_web_log(f"📩 Вебхук получен: update_id={update_id}", "INFO")
         
-        # ВСЕГДА возвращаем OK, чтобы Telegram не считал вебхук сломанным
-        return "ok", 200
+        # СНАЧАЛА ИНИЦИАЛИЗИРУЕМ БОТА ЕСЛИ НЕТ
+        global application
+        if application is None:
+            add_web_log("🤖 Бот не инициализирован, пытаюсь инициализировать...", "WARNING")
+            if init_bot_sync():
+                add_web_log("✅ Бот инициализирован успешно", "INFO")
+            else:
+                add_web_log("⚠️ Не удалось инициализировать бота", "WARNING")
+        
+        # Если бот инициализирован, обрабатываем обновление
+        if application is not None:
+            try:
+                from telegram import Update
+                update = Update.de_json(data, application.bot)
+                
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(application.process_update(update))
+                
+                add_web_log(f"✅ Обработано обновление: {update_id}", "INFO")
+            except Exception as process_error:
+                add_web_log(f"⚠️ Ошибка обработки: {str(process_error)[:100]}", "WARNING")
         
     except Exception as e:
         error_msg = f"❌ Ошибка в вебхуке: {str(e)[:100]}"
         add_web_log(error_msg, "ERROR")
-        return "error", 500
+        print(f"Webhook error: {e}")
+    
+    # ВСЕГДА возвращаем OK, чтобы Telegram не считал вебхук сломанным
+    return "ok", 200
         
     except Exception as e:
         error_msg = f"Критическая ошибка в вебхуке: {str(e)}"
@@ -694,7 +711,6 @@ def telegram_webhook():
         logger.error(error_msg, exc_info=True)
         return "error", 500
 
-# ========== СИНХРОННАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
 def init_bot_sync():
     """Синхронная инициализация бота"""
     global application
@@ -710,21 +726,27 @@ def init_bot_sync():
     try:
         add_web_log("🔄 Инициализация бота...", "INFO")
         
-        # Импортируем здесь, чтобы избежать циклических импортов
-        from telegram.ext import Application as TelegramApplication
-        
-        application = TelegramApplication.builder().token(TOKEN).build()
+        # Используем Application из уже импортированных модулей
+        application = Application.builder().token(TOKEN).build()
         
         # Регистрируем обработчики
         try:
-            # Команды
             application.add_handler(CommandHandler("start", private_start))
             application.add_handler(CommandHandler("monopoly", group_monopoly))
             application.add_handler(CommandHandler("help", help_command))
             
-            add_web_log("✅ Базовые обработчики зарегистрированы", "INFO")
+            # Дополнительные обработчики (минимум для работы)
+            application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
+            application.add_handler(CallbackQueryHandler(start_game, pattern="^start_"))
+            application.add_handler(CallbackQueryHandler(roll_dice, pattern="^roll_"))
+            application.add_handler(CallbackQueryHandler(buy_property, pattern="^buy_"))
+            application.add_handler(CallbackQueryHandler(skip_turn, pattern="^skip_"))
+            application.add_handler(CallbackQueryHandler(end_turn, pattern="^end_"))
+            
+            add_web_log(f"✅ Обработчики зарегистрированы: {len(application.handlers[0])}", "INFO")
         except Exception as handler_error:
             add_web_log(f"⚠️ Ошибка регистрации обработчиков: {handler_error}", "WARNING")
+            traceback.print_exc()
         
         # Инициализируем
         loop = asyncio.new_event_loop()
@@ -738,6 +760,8 @@ def init_bot_sync():
     except Exception as e:
         error_msg = f"❌ Ошибка инициализации бота: {str(e)}"
         add_web_log(error_msg, "ERROR")
+        print(f"Ошибка инициализации: {e}")
+        traceback.print_exc()
         return False
         
 # ========== ОСНОВНОЙ КОД БОТА ==========
