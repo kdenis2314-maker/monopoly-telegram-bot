@@ -2560,14 +2560,13 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===================== ОСНОВНАЯ ФУНКЦИЯ =====================
 def main():
-    """Основная функция запуска сервиса"""
+    """Основная функция запуска сервиса - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
     try:
         # ========== ЛОГИРОВАНИЕ ЗАПУСКА ==========
         print("=" * 60)
         print("🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot")
         print("=" * 60)
-        
-        add_web_log("🚀 Запуск сервиса", "INFO")
+        print(f"📅 Время запуска: {datetime.now()}")
         
         # ========== ПРОВЕРКА КОНФИГУРАЦИИ ==========
         print("\n📋 Конфигурация:")
@@ -2580,72 +2579,136 @@ def main():
             print(f"  BOT_TOKEN: ✅ Установлен ({token_preview})")
         else:
             print(f"  BOT_TOKEN: ❌ Отсутствует")
-            print("  ⚠️  Бот не будет работать, но веб-интерфейс доступен")
+            print("  ⚠️  Бот не будет работать!")
         
-        # ========== ИНИЦИАЛИЗАЦИЯ БОТА ПРИ СТАРТЕ ==========
+        # ========== ПРОСТАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
         print("\n🤖 Инициализация бота...")
         
         if TOKEN:
-            # ПРЯМОЙ вызов, не в потоке
-            success = init_bot_sync()
-            if success:
-                print("✅ Бот успешно инициализирован!")
+            try:
+                # ИМПОРТИРУЕМ ВНУТРИ ФУНКЦИИ
+                from telegram.ext import Application, CommandHandler
+                import asyncio
                 
-                # Проверяем что application.bot доступен
-                if application and application.bot:
-                    print(f"✅ Бот готов: @{application.bot.username}")
-                    
-                    # Автоматически устанавливаем вебхук если бот готов
-                    try:
-                        # Простая установка вебхука через requests если доступен
-                        try:
-                            import requests
-                            webhook_url = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"
-                            api_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={webhook_url}"
-                            response = requests.get(api_url, timeout=10)
-                            if response.status_code == 200:
-                                print(f"✅ Вебхук установлен: {webhook_url}")
-                                add_web_log(f"Вебхук установлен: {webhook_url}", "INFO")
-                            else:
-                                print(f"⚠️ Не удалось установить вебхук: {response.status_code}")
-                        except ImportError:
-                            # Если requests не установлен, просто информируем
-                            print("ℹ️  Для автоматической установки вебхука установите библиотеку 'requests'")
-                            print(f"ℹ️  Установите вручную: https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
-                    except Exception as webhook_error:
-                        print(f"⚠️ Ошибка установки вебхука: {webhook_error}")
+                global application
+                
+                print("  1. Создаем Application...")
+                application = Application.builder().token(TOKEN).build()
+                print("  ✅ Application создан")
+                
+                print("  2. Добавляем обработчики...")
+                
+                # ВАЖНО: Используем функции из этого же файла
+                # Они уже определены выше, поэтому можно импортировать
+                # Но чтобы избежать циклических импортов, используем их напрямую
+                
+                # Команда /start
+                async def start_wrapper(update: Update, context):
+                    return await private_start(update, context)
+                
+                # Команда /help  
+                async def help_wrapper(update: Update, context):
+                    return await help_command(update, context)
+                
+                # Команда /monopoly
+                async def monopoly_wrapper(update: Update, context):
+                    return await group_monopoly(update, context)
+                
+                application.add_handler(CommandHandler("start", start_wrapper))
+                application.add_handler(CommandHandler("help", help_wrapper))
+                application.add_handler(CommandHandler("monopoly", monopoly_wrapper))
+                
+                print("  ✅ Обработчики добавлены")
+                
+                print("  3. Инициализируем...")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # ТОЛЬКО ИНИЦИАЛИЗАЦИЯ
+                loop.run_until_complete(application.initialize())
+                print("  ✅ Бот инициализирован")
+                
+                # НЕ запускаем application.start() - это сделает вебхук
+                
+                # Проверяем состояние
+                if application and hasattr(application, 'bot') and application.bot:
+                    print(f"  ✅ Бот готов к работе")
+                    print(f"  ℹ️  Бот объект: {application.bot}")
                 else:
-                    print("❌ application.bot is None!")
-            else:
-                print("❌ Не удалось инициализировать бота")
-                add_web_log("Не удалось инициализировать бота", "ERROR")
+                    print("  ⚠️  Бот не создан или application.bot = None")
+                
+                # Добавляем лог
+                add_web_log("✅ Бот инициализирован при запуске", "INFO")
+                
+            except Exception as e:
+                print(f"  ❌ Ошибка инициализации бота: {e}")
+                import traceback
+                traceback.print_exc()
+                application = None
+                add_web_log(f"❌ Ошибка инициализации бота: {e}", "ERROR")
         else:
-            print("⚠️  BOT_TOKEN не установлен - бот не инициализирован")
-            add_web_log("BOT_TOKEN не установлен, бот не инициализирован", "WARNING")
+            print("  ⚠️  Пропускаем инициализацию (нет токена)")
+            application = None
         
-        # ========== ЗАПУСК FLASK ==========
-        print("\n" + "=" * 60)
-        print("🌐 Запуск веб-сервера Flask...")
-        print(f"  Хост: 0.0.0.0")
-        print(f"  Порт: {PORT}")
-        print(f"  Режим: production")
+        # ========== АВТОМАТИЧЕСКАЯ УСТАНОВКА WEBHOOK ==========
+        print("\n🌐 Настройка вебхука...")
+        try:
+            if TOKEN and application:
+                import requests
+                # Устанавливаем вебхук
+                webhook_url = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"
+                set_webhook_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={webhook_url}"
+                
+                print(f"  URL вебхука: {webhook_url}")
+                print("  Устанавливаем через Telegram API...")
+                
+                response = requests.get(set_webhook_url, timeout=10)
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get('ok'):
+                        print("  ✅ Вебхук установлен успешно!")
+                        add_web_log(f"✅ Вебхук установлен: {webhook_url}", "INFO")
+                    else:
+                        print(f"  ❌ Ошибка установки: {result}")
+                        add_web_log(f"❌ Ошибка установки вебхука: {result}", "ERROR")
+                else:
+                    print(f"  ❌ HTTP ошибка: {response.status_code}")
+            elif not TOKEN:
+                print("  ⚠️  Пропускаем (нет токена)")
+            elif not application:
+                print("  ⚠️  Пропускаем (application не создан)")
+                
+        except ImportError:
+            print("  ⚠️  Библиотека requests не установлена")
+            print("  ℹ️  Можно установить вручную после запуска")
+        except Exception as e:
+            print(f"  ❌ Ошибка установки вебхука: {e}")
+            add_web_log(f"❌ Ошибка установки вебхука: {e}", "ERROR")
         
-        print("\n📊 Статистика при запуске:")
-        active_games = len([g for g in games_storage.values() if g.get('status') != 'finished'])
-        print(f"  Активных игр: {active_games}")
-        print(f"  Всего игр в памяти: {len(games_storage)}")
+        # ========== ИНФОРМАЦИЯ ДЛЯ ОТЛАДКИ ==========
+        print("\n📊 Статус системы:")
+        print(f"  Application создан: {'✅ Да' if application else '❌ Нет'}")
+        if application:
+            print(f"  application.bot: {'✅ Существует' if hasattr(application, 'bot') and application.bot else '❌ None'}")
+        print(f"  Активных игр: {len([g for g in games_storage.values() if g.get('status') != 'finished'])}")
+        print(f"  Web логи: {len(web_logs)} записей")
         
-        print("\n🔗 Доступные URL:")
+        # ========== ВАЖНЫЕ ССЫЛКИ ==========
+        print("\n🔗 Полезные ссылки:")
         print(f"  • {RENDER_DOMAIN}/ - Статус бота")
-        print(f"  • {RENDER_DOMAIN}/ping - Проверка работы")
-        print(f"  • {RENDER_DOMAIN}/logs - Логи")
-        print(f"  • {RENDER_DOMAIN}/webhook - Вебхук Telegram")
-        print(f"  • {RENDER_DOMAIN}/set_webhook_manual - Установка вебхука")
+        print(f"  • {RENDER_DOMAIN}/logs - Логи в реальном времени")
+        print(f"  • {RENDER_DOMAIN}/webhook_info - Информация о вебхуке")
+        
+        if TOKEN:
+            print("\n📱 Ссылки для отладки:")
+            print(f"  • Проверить вебхук: https://api.telegram.org/bot{TOKEN}/getWebhookInfo")
+            print(f"  • Установить вебхук вручную: https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
         
         print("=" * 60)
-        print("\n✅ Сервис запущен!\n")
-        
-        add_web_log(f"Flask запущен на порту {PORT}", "INFO")
+        print("\n✅ Сервис запущен и готов к работе!")
+        print("   Отправьте /start боту в Telegram для проверки")
+        print("   Логи можно посмотреть на /logs")
+        print("=" * 60)
         
         # ========== ЗАПУСК FLASK СЕРВЕРА ==========
         # ВАЖНО: NO DEBUG MODE для production!
@@ -2666,85 +2729,6 @@ def main():
         add_web_log(f"Критическая ошибка при запуске: {e}", "ERROR")
         import traceback
         traceback.print_exc()
-
-# ========== ОТЛАДОЧНЫЕ МАРШРУТЫ ==========
-@flask_app.route('/debug_bot')
-def debug_bot():
-    """Отладочная информация о состоянии бота"""
-    try:
-        import json
-        
-        info = {
-            "TOKEN_exists": bool(TOKEN),
-            "TOKEN_length": len(TOKEN) if TOKEN else 0,
-            "application_exists": application is not None,
-            "application_type": type(application).__name__ if application else "None",
-            "application_has_bot": hasattr(application, 'bot') if application else False,
-            "bot_is_none": application.bot is None if (application and hasattr(application, 'bot')) else True,
-            "games_count": len(games_storage),
-            "web_logs_count": len(web_logs)
-        }
-        
-        # Безопасное получение username бота
-        if application and hasattr(application, 'bot') and application.bot:
-            try:
-                info["bot_username"] = application.bot.username
-            except:
-                info["bot_username"] = "ERROR_GETTING_USERNAME"
-        else:
-            info["bot_username"] = "NO_BOT"
-        
-        return json.dumps(info, indent=2, ensure_ascii=False, default=str), 200, {'Content-Type': 'application/json'}
-    
-    except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2), 500
-
-@flask_app.route('/init_now')
-def init_now():
-    """Немедленная инициализация бота"""
-    try:
-        global application
-        
-        if application is not None:
-            return "❌ Бот уже инициализирован (application is not None)"
-        
-        if not TOKEN:
-            return "❌ BOT_TOKEN не установлен"
-        
-        # Импорты
-        from telegram.ext import Application, CommandHandler
-        import asyncio
-        
-        add_web_log("🔧 РУЧНАЯ ИНИЦИАЛИЗАЦИЯ БОТА...", "INFO")
-        
-        # Создаем application
-        application = Application.builder().token(TOKEN).build()
-        add_web_log("✅ Application создан", "INFO")
-        
-        # Добавляем обработчики
-        application.add_handler(CommandHandler("start", private_start))
-        application.add_handler(CommandHandler("help", help_command))
-        add_web_log("✅ Обработчики добавлены", "INFO")
-        
-        # Инициализируем
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        loop.run_until_complete(application.initialize())
-        loop.run_until_complete(application.start())
-        
-        add_web_log("✅ Бот запущен!", "INFO")
-        
-        # Проверяем
-        if application and application.bot:
-            return f"✅ Бот успешно инициализирован! Username: @{application.bot.username}"
-        else:
-            return "⚠️ Application создан, но bot = None"
-        
-    except Exception as e:
-        error_msg = f"❌ Ошибка: {str(e)}"
-        add_web_log(error_msg, "ERROR")
-        return error_msg, 500
 
 # ========== ТОЧКА ВХОДА ==========
 if __name__ == "__main__":
