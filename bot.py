@@ -60,8 +60,86 @@ if not TOKEN:
 def ping():
     return "pong", 200
 
+# ==== ВСТАВЬТЕ ЭТОТ КОД ЗДЕСЬ ====
+@flask_app.route('/')
+def index():
+    return """
+    <html>
+    <head>
+        <title>🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                text-align: center;
+                padding: 50px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+            }
+            .container {
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+                border-radius: 20px;
+                padding: 40px;
+                max-width: 600px;
+                margin: 0 auto;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            }
+            h1 {
+                font-size: 2.5em;
+                margin-bottom: 20px;
+            }
+            .emoji {
+                font-size: 3em;
+            }
+            .status {
+                background: rgba(0, 255, 0, 0.2);
+                padding: 10px 20px;
+                border-radius: 50px;
+                display: inline-block;
+                margin: 20px 0;
+            }
+            .links {
+                margin-top: 30px;
+            }
+            a {
+                color: #ffcc00;
+                text-decoration: none;
+                font-weight: bold;
+            }
+            a:hover {
+                text-decoration: underline;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="emoji">🎩</div>
+            <h1>МОНОПОЛИЯ ПРЕМИУМ</h1>
+            <p><strong>Telegram Bot для игры в группах</strong></p>
+            
+            <div class="status">
+                ✅ Бот активен и работает
+            </div>
+            
+            <div class="links">
+                <p><a href="/ping">Проверить статус API</a></p>
+                <p>Для начала игры добавьте бота в Telegram группу и напишите <code>/monopoly</code></p>
+                <p>Бот: <a href="https://t.me/ВАШ_БОТ_ЮЗЕРНЕЙМ">@ВАШ_БОТ_ЮЗЕРНЕЙМ</a></p>
+            </div>
+            
+            <p style="margin-top: 30px; font-size: 0.9em; opacity: 0.8;">
+                Версия для Render.com с Webhook
+            </p>
+        </div>
+    </body>
+    </html>
+    """, 200
+# ==== КОНЕЦ ВСТАВЛЯЕМОГО КОДА ====
+
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
 async def telegram_webhook():
+    # ... ваш существующий код ...
     from telegram import Update
     if not application:
         return "Bot application not initialized", 503
