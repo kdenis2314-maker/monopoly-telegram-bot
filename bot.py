@@ -2,102 +2,69 @@ import asyncio
 import logging
 import os
 import time
-import random
 from flask import Flask, render_template_string, request, redirect
 from threading import Thread
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardButton, WebAppInfo
+from aiogram.types import InlineKeyboardButton
 
-# --- НАСТРОЙКИ ---
+# --- КОНФИГУРАЦИЯ ---
 TOKEN = os.environ.get("TOKEN")
-BOT_USERNAME = "Monopolysigma_bot" # Замените на имя без @
+# Укажите юзернейм вашего бота БЕЗ @ (обязательно для кнопки "Добавить в группу")
+BOT_USERNAME = "ВАШ_ЮЗЕРНЕЙМ_БОТА" 
+
+# Глобальная статистика для сайта
 start_time = time.time()
-logs = []
+logs_list = []
 
 def add_log(msg):
-    logs.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
-    if len(logs) > 15: logs.pop(0)
+    logs_list.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+    if len(logs_list) > 20: logs_list.pop(0)
 
-# --- МОЩНЫЙ ДВИЖОК (БАЗА ДАННЫХ В ПАМЯТИ) ---
-# В реальном проекте лучше использовать БД (SQLAlchemy/MongoDB)
-game_sessions = {} # Хранение активных игр в группах
-
-# --- КРАСИВЫЙ САЙТ-ПАНЕЛЬ ---
+# --- САМАЯ МОЩНАЯ АДМИН-ПАНЕЛЬ ---
 app = Flask(__name__)
 
-DASHBOARD_HTML = """
+DASH_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Monopoly Admin</title>
+    <meta charset="utf-8">
+    <title>Monopoly Control</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #0b0e14; color: #cfd8dc; font-family: 'Inter', sans-serif; }
-        .stat-card { background: #151921; border-radius: 15px; border: 1px solid #2d333b; transition: 0.3s; }
-        .stat-card:hover { border-color: #00ff88; transform: translateY(-5px); }
-        .log-container { background: #000; color: #00ff41; padding: 15px; border-radius: 10px; font-family: 'Courier New'; height: 250px; overflow-y: auto; font-size: 0.9rem; }
-        .accent { color: #00ff88; }
-        .btn-send { background: linear-gradient(45deg, #00ff88, #00b0ff); border: none; color: black; font-weight: bold; }
+        body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; }
+        .accent { color: #58a6ff; font-weight: bold; }
+        .log-box { background: #000; color: #39ff14; padding: 10px; height: 300px; overflow-y: auto; font-family: monospace; border-radius: 8px; font-size: 13px; }
+        .btn-action { background: #238636; border: none; color: white; }
+        .btn-action:hover { background: #2ea043; }
     </style>
 </head>
 <body class="p-4">
     <div class="container">
-        <header class="d-flex justify-content-between align-items-center mb-5">
-            <h1>🏦 Monopoly <span class="accent">Control Center</span></h1>
-            <div class="badge bg-success p-2">System Online</div>
-        </header>
-
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="stat-card p-4 text-center">
-                    <h6>Активных игр</h6>
-                    <h2 class="accent">{{ games_count }}</h2>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card p-4 text-center">
-                    <h6>Uptime</h6>
-                    <h2 class="accent">{{ uptime }} мин.</h2>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card p-4 text-center">
-                    <h6>Логи событий</h6>
-                    <h2 class="accent">{{ logs_count }}</h2>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card p-4 text-center">
-                    <h6>Версия ядра</h6>
-                    <h2 class="accent">3.5.0</h2>
-                </div>
-            </div>
+        <h2 class="mb-4">🏦 Monopoly <span class="accent">Engine v3.5</span></h2>
+        <div class="row g-3 mb-4">
+            <div class="col-md-4"><div class="card p-3">Статус: <span class="text-success">ONLINE</span></div></div>
+            <div class="col-md-4"><div class="card p-3">Аптайм: {{ uptime }} мин.</div></div>
+            <div class="col-md-4"><div class="card p-3">Логи: {{ log_count }}</div></div>
         </div>
-
         <div class="row">
             <div class="col-md-7">
-                <div class="stat-card p-4 h-100">
-                    <h5>🛠 Управление (Шутки над юзерами)</h5>
+                <div class="card p-4 h-100">
+                    <h5>🎭 Отправить сообщение от бота (Шутки)</h5>
                     <form action="/send" method="POST">
-                        <div class="mb-3">
-                            <input type="text" name="user_id" class="form-control bg-dark text-white border-secondary" placeholder="Telegram ID пользователя">
-                        </div>
-                        <div class="mb-3">
-                            <textarea name="text" class="form-control bg-dark text-white border-secondary" placeholder="Сообщение (например: 'Поздравляем! Вы обанкротились на ровном месте!')"></textarea>
-                        </div>
-                        <button type="submit" class="btn btn-send w-100">Отправить от имени бота</button>
+                        <input type="text" name="uid" class="form-control bg-dark text-white mb-2" placeholder="User ID">
+                        <textarea name="msg" class="form-control bg-dark text-white mb-3" placeholder="Текст сообщения..."></textarea>
+                        <button type="submit" class="btn btn-action w-100">Отправить в Telegram</button>
                     </form>
                 </div>
             </div>
             <div class="col-md-5">
-                <div class="stat-card p-4 h-100">
-                    <h5>📜 Консоль событий</h5>
-                    <div class="log-container">
-                        {% for log in logs %}
-                        <div>{{ log }}</div>
-                        {% endfor %}
+                <div class="card p-4 h-100">
+                    <h5>📜 Консоль (Live)</h5>
+                    <div class="log-box">
+                        {% for log in logs %}<div style="border-bottom: 1px solid #222;">{{ log }}</div>{% endfor %}
                     </div>
                 </div>
             </div>
@@ -109,16 +76,15 @@ DASHBOARD_HTML = """
 
 @app.route('/')
 def index():
-    uptime = int((time.time() - start_time) / 60)
-    return render_template_string(DASHBOARD_HTML, games_count=len(game_sessions), uptime=uptime, logs_count=len(logs), logs=logs[::-1])
+    upt = int((time.time() - start_time) / 60)
+    return render_template_string(DASH_HTML, uptime=upt, log_count=len(logs_list), logs=logs_list[::-1])
 
 @app.route('/send', methods=['POST'])
-def send():
-    uid = request.form.get('user_id')
-    txt = request.form.get('text')
-    if uid and txt:
-        asyncio.run_coroutine_threadsafe(bot.send_message(uid, txt), loop)
-        add_log(f"ADMIN SEND to {uid}: {txt[:20]}...")
+def send_joke():
+    uid, msg = request.form.get('uid'), request.form.get('msg')
+    if uid and msg:
+        asyncio.run_coroutine_threadsafe(bot.send_message(uid, msg), loop)
+        add_log(f"ADMIN: Сообщение отправлено пользователю {uid}")
     return redirect('/')
 
 # --- ЛОГИКА БОТА ---
@@ -126,83 +92,46 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 loop = None
 
-# Клавиатура для ЛС
-def private_kb():
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="➕ Добавить в группу", url=f"https://t.me/{BOT_USERNAME}?startgroup=true"))
-    builder.row(InlineKeyboardButton(text="👨‍💻 О разработчике", callback_data="dev"))
-    builder.row(InlineKeyboardButton(text="📜 Правила и игра", callback_data="rules"))
-    return builder.as_markup()
-
-# Клавиатура для Группы
-def group_kb():
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🎮 Играть (от 2 чел)", callback_data="join_game"))
-    builder.row(InlineKeyboardButton(text="ℹ️ Инфо", callback_data="rules"))
-    builder.row(InlineKeyboardButton(text="👑 Разработчик", callback_data="dev"))
-    return builder.as_markup()
+def get_keyboard(is_group=False):
+    kb = InlineKeyboardBuilder()
+    if is_group:
+        kb.row(InlineKeyboardButton(text="🎮 Играть (от 2 чел)", callback_data="play_group"))
+        kb.row(InlineKeyboardButton(text="👨‍💻 Разработчик", callback_data="info_dev"),
+               InlineKeyboardButton(text="📜 Правила", callback_data="info_rules"))
+    else:
+        kb.row(InlineKeyboardButton(text="➕ Добавить в группу", url=f"https://t.me/{BOT_USERNAME}?startgroup=true"))
+        kb.row(InlineKeyboardButton(text="👨‍💻 Разработчик", callback_data="info_dev"))
+        kb.row(InlineKeyboardButton(text="📜 Правила игры", callback_data="info_rules"))
+    return kb.as_markup()
 
 @dp.message(Command("start"))
-async def start(message: types.Message):
-    add_log(f"Start by {message.from_user.id}")
-    if message.chat.type == 'private':
-        await message.answer("🏦 **Центральный Банк Монополии** приветствует тебя!\n\nИспользуй меню ниже для настройки:", reply_markup=private_kb(), parse_mode="Markdown")
+async def cmd_start(message: types.Message):
+    add_log(f"User {message.from_user.id} ({message.from_user.first_name}) нажал /start")
+    is_group = message.chat.type != "private"
+    text = "🏘 **Добро пожаловать в Монополию!**\n\nВыберите действие:" if not is_group else "🏙 **Бот активен в группе!**"
+    await message.answer(text, reply_markup=get_keyboard(is_group), parse_mode="Markdown")
+
+@dp.callback_query(F.data.startswith("info_"))
+async def handle_info(call: types.CallbackQuery):
+    if call.data == "info_dev":
+        await call.message.edit_text("👨‍💻 **Разработчик:** Denix-Maker\n\nБот работает на мощном асинхронном движке v3.5 через Render Cloud.", reply_markup=call.message.reply_markup, parse_mode="Markdown")
     else:
-        await message.answer("🏙 **Монополия готова к запуску в этой группе!**\n\nНажмите кнопку ниже, чтобы собрать игроков.", reply_markup=group_kb(), parse_mode="Markdown")
-
-@dp.callback_query(F.data == "rules")
-async def show_rules(call: types.CallbackQuery):
-    rules = (
-        "📜 **Правила Монополии:**\n"
-        "• Для старта нужно минимум 2 игрока.\n"
-        "• Бросайте кубики, покупайте улицы, стройте отели.\n"
-        "• Цель: разорить оппонентов и захватить рынок.\n\n"
-        "💎 **Движок v3.5:**\n"
-        "• Стабильные расчеты\n• Авто-сохранение прогресса"
-    )
-    await call.message.edit_text(rules, reply_markup=call.message.reply_markup, parse_mode="Markdown")
+        await call.message.edit_text("📜 **Краткие правила:**\n1. Минимум 2 игрока.\n2. Покупайте улицы, стройте монополии.\n3. Цель - разорить всех!", reply_markup=call.message.reply_markup, parse_mode="Markdown")
     await call.answer()
-
-@dp.callback_query(F.data == "dev")
-async def show_dev(call: types.CallbackQuery):
-    await call.message.edit_text("👨‍💻 **Developer:** `Denix-Maker`\n🚀 **Platform:** Render Cloud\n⚡️ **Engine:** Aiogram 3.x", reply_markup=call.message.reply_markup, parse_mode="Markdown")
-    await call.answer()
-
-@dp.callback_query(F.data == "join_game")
-async def join_game(call: types.CallbackQuery):
-    chat_id = call.message.chat.id
-    user_id = call.from_user.id
-    
-    if chat_id not in game_sessions:
-        game_sessions[chat_id] = set()
-    
-    game_sessions[chat_id].add(user_id)
-    count = len(game_sessions[chat_id])
-    
-    add_log(f"User {user_id} joined game in {chat_id}")
-    
-    msg = f"🎮 **Сбор игроков!**\n\nПрисоединилось: `{count}` чел.\n"
-    if count < 2:
-        msg += "⚠️ Нужно еще минимум 1 человек."
-    else:
-        msg += "✅ Можно начинать! (Админ, используй /play)"
-        
-    await call.message.edit_text(msg, reply_markup=group_kb(), parse_mode="Markdown")
-    await call.answer("Вы в игре!")
 
 async def main():
     global loop
     loop = asyncio.get_running_loop()
     logging.basicConfig(level=logging.INFO)
     
-    # Запуск Flask в потоке
+    # Запуск сайта в фоне
     port = int(os.environ.get("PORT", 8080))
     Thread(target=lambda: app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False), daemon=True).start()
     
-    add_log("Core Engine v3.5 Started")
+    add_log("Система запущена. Движок готов.")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-                             
+        
