@@ -78,62 +78,55 @@ if web_logs:
     print(f"🟢 ПЕРВАЯ запись: {web_logs[0]}")
 print("=" * 50)
 
-# ========== ПРОСТЕЙШАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
+# ========== МИНИМАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
 print("=" * 60)
 print("🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot")
 print("=" * 60)
 print(f"📅 Время запуска: {datetime.now()}")
 print(f"📋 Токен установлен: {'✅ Да' if TOKEN else '❌ Нет'}")
 
-application = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ БОТА
+application = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ
 
 if TOKEN:
     try:
-        print("🤖 САМАЯ ПРОСТАЯ инициализация бота...")
+        print("🤖 МИНИМАЛЬНАЯ инициализация...")
         
-        # 1. ТОЛЬКО создаем Application - БЕЗ обработчиков!
-        print("  1. Создаем Application...")
-        from telegram.ext import Application
-        application = Application.builder().token(TOKEN).build()
-        print(f"  ✅ Application создан: {type(application)}")
+        # 1. Пробуем простейший импорт
+        print("  1. Тестируем импорт...")
+        try:
+            import telegram
+            print(f"  ✅ telegram импортирован")
+        except ImportError as e:
+            print(f"  ❌ Ошибка импорта telegram: {e}")
+            raise
         
-        # 2. НЕ добавляем обработчики сейчас - они добавятся позже через application.add_handler
-        print("  2. Обработчики будут добавлены ПОЗЖЕ")
+        # 2. Создаем ПРОСТОГО бота
+        print("  2. Создаем простого бота...")
+        bot = telegram.Bot(token=TOKEN)
+        print(f"  ✅ Бот создан: {bot}")
         
-        # 3. Проверяем состояние
-        if application:
-            print(f"  ✅ Бот создан успешно")
-            # Проверяем бота
-            try:
-                if hasattr(application, 'bot') and application.bot:
-                    print(f"  ✅ application.bot доступен")
-                else:
-                    print("  ⚠️  application.bot = None или недоступен")
-            except:
-                print("  ⚠️  Не удалось проверить application.bot")
-        else:
-            print("  ⚠️  Бот не создан")
+        # 3. Используем bot как application
+        application = bot
+        print(f"  ✅ Application установлен: {application}")
         
         # 4. Логируем
-        add_web_log("🤖 Бот создан (только Application объект)", "INFO")
+        add_web_log("🤖 Минимальный бот создан", "INFO")
         print("  ✅ Лог добавлен")
         
     except Exception as e:
-        print(f"❌ Ошибка создания Application: {e}")
+        print(f"❌ ФАТАЛЬНАЯ ошибка: {e}")
         import traceback
         traceback.print_exc()
         application = None
-        add_web_log(f"❌ Ошибка создания Application: {e}", "ERROR")
+        add_web_log(f"❌ Фатальная ошибка: {e}", "ERROR")
 else:
-    print("⚠️  Токен не установлен - бот не создан")
+    print("⚠️  Токен не установлен")
     application = None
-    add_web_log("⚠️  Токен не установлен, бот не создан", "WARNING")
 
-print(f"📊 Итог: application создан = {'✅ Да' if application else '❌ Нет'}")
+print(f"📊 Итог: application = {application}")
 print("=" * 60)
 print("✅ Инициализация завершена")
 print("=" * 60)
-
 # ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 from flask import Flask, request, render_template_string
 
@@ -776,77 +769,36 @@ def clear_logs():
 
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
 def telegram_webhook():
-    """Обработчик вебхука Telegram с обработкой через application"""
+    """Упрощенный обработчик для простого бота"""
     try:
-        # 1. Получаем данные от Telegram
-        data = request.get_json(force=True, silent=True)
-        
-        if not data:
-            add_web_log("📩 Получен пустой вебхук", "INFO")
-            return "ok", 200
-        
-        update_id = data.get('update_id', 'unknown')
-        add_web_log(f"📩 Вебхук получен: ID {update_id}", "INFO")
-        
-        # 2. Логируем информацию о сообщении (для отладки)
-        if 'message' in data:
-            message = data['message']
-            text = message.get('text', '')[:50]  # Первые 50 символов
-            user = message.get('from', {})
-            username = user.get('username', user.get('first_name', 'Unknown'))
-            chat_id = message.get('chat', {}).get('id', 'unknown')
-            chat_type = message.get('chat', {}).get('type', 'unknown')
-            
-            add_web_log(f"  👤 @{username} (чат {chat_type}): {text}", "INFO")
-            
-            # Логируем команды
-            if text and text.startswith('/'):
-                add_web_log(f"  🎯 Команда: {text.split()[0]}", "INFO")
-        
-        elif 'callback_query' in data:
-            callback = data['callback_query']
-            query_data = callback.get('data', '')[:30]
-            user = callback.get('from', {})
-            username = user.get('username', user.get('first_name', 'Unknown'))
-            add_web_log(f"  🔘 Callback от @{username}: {query_data}", "INFO")
-        
-        # 3. Проверяем инициализацию бота
-        global application
+        add_web_log("📩 Вебхук получен", "INFO")
         
         if application is None:
-            add_web_log("⚠️ Бот не инициализирован, пропускаем обработку", "WARNING")
+            add_web_log("⚠️ Бот не создан", "WARNING")
             return "ok", 200
-        
-        if application.bot is None:
-            add_web_log("⚠️ application.bot is None, пропускаем обработку", "WARNING")
+            
+        # Получаем данные
+        data = request.get_json()
+        if not data:
             return "ok", 200
+            
+        # Просто логируем
+        update_id = data.get('update_id', 'unknown')
+        add_web_log(f"📩 Вебхук ID: {update_id}", "INFO")
         
-        # 4. Обрабатываем обновление через application
-        try:
-            from telegram import Update
-            update = Update.de_json(data, application.bot)
-            
-            # Создаем event loop для асинхронной обработки
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            # Обрабатываем обновление
-            loop.run_until_complete(application.process_update(update))
-            
-            add_web_log(f"✅ Обновление {update_id} обработано", "INFO")
-            
-        except Exception as process_error:
-            add_web_log(f"⚠️ Ошибка обработки обновления: {str(process_error)[:100]}", "WARNING")
-            # Продолжаем - главное вернуть OK Telegram
+        # Если есть сообщение
+        if 'message' in data:
+            msg = data['message']
+            text = msg.get('text', '')
+            user = msg.get('from', {})
+            username = user.get('username', user.get('first_name', 'Unknown'))
+            add_web_log(f"👤 @{username}: {text[:50]}", "INFO")
+        
+        return "ok", 200
         
     except Exception as e:
-        error_msg = f"❌ Ошибка в вебхуке: {str(e)[:100]}"
-        add_web_log(error_msg, "ERROR")
-        print(f"Webhook error: {e}")
-        # Не выводим traceback в продакшене чтобы не засорять логи
-    
-    # 5. ВСЕГДА возвращаем OK, чтобы Telegram не отключал вебхук
-    return "ok", 200
+        add_web_log(f"❌ Ошибка: {e}", "ERROR")
+        return "ok", 200
         
 def init_bot_sync():
     """Минимальная инициализация бота"""
