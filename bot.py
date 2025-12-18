@@ -78,6 +78,7 @@ async def main():
     logging.basicConfig(level=logging.INFO)
     keep_alive() # Запускаем веб-сервер
     print(">>> Бот запущен и готов к работе!")
+    await bot.delete_webhook(drop_pending_updates=True) 
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
