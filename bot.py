@@ -2662,44 +2662,23 @@ def main():
                     bot_info = response.json().get('result', {})
                     print(f"  Имя бота: @{bot_info.get('username', 'unknown')}")
                     print(f"  Название: {bot_info.get('first_name', 'unknown')}")
-                else:
-                    print(f"  ❌ Токен невалидный. Ошибка: {response.status_code}")
-                    print(f"  Ответ: {response.text}")
-            except Exception as token_error:
-                print(f"  ❌ Не удалось проверить токен: {token_error}")
-        
-        # ========== УСТАНОВКА ВЕБХУКА ==========
-        if bot_initialized and application:
-            print("\n🌐 Настройка вебхука...")
-            add_web_log("Настройка вебхука...", "INFO")
-            
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                # Удаляем старый вебхук (если есть)
-                print("  Очистка старого вебхука...")
-                await application.bot.delete_webhook()
-                
-                # Устанавливаем новый вебхук
-                print(f"  Установка вебхука на: {WEBHOOK_URL}")
-                success = loop.run_until_complete(application.bot.set_webhook(
-                    url=WEBHOOK_URL,
-                    max_connections=40,
-                    allowed_updates=["message", "callback_query"]
-                ))
-                
-                if success:
-                    print("  ✅ Вебхук успешно установлен!")
-                    add_web_log(f"Вебхук установлен: {WEBHOOK_URL}", "INFO")
-                    
-                    # Проверяем статус вебхука
-                    webhook_info = loop.run_until_complete(application.bot.get_webhook_info())
-                    print(f"  URL вебхука: {webhook_info.url}")
-                    print(f"  Ожидающих сообщений: {webhook_info.pending_update_count}")
-                    
-                    if webhook_info.last_error_message:
-                        print(f"  ⚠️ Последняя ошибка: {webhook_info.last_error_message}")
+               else:
+    print(f"  ❌ Token невалидный. Ошибка: {response.status_code}")
+    print(f"  Ответ: {response.text}")
+except Exception as token_error:
+    print(f"  ❌ Не удалось проверить токен: {token_error}")
+
+if success:
+    print("  ✅ Вебхук успешно установлен!")
+    add_web_log(f"Вебхук установлен: {WEBHOOK_URL}", "INFO")
+
+    # Проверяем статус вебхука
+    webhook_info = loop.run_until_complete(application.bot.get_webhook_info())
+    print(f"  URL вебхука: {webhook_info.url}")
+    print(f"  Ожидающих сообщений: {webhook_info.pending_update_count}")
+
+    if webhook_info.last_error_message:
+        print(f"  ⚠️ Последняя ошибка: {webhook_info.last_error_message}")
                 else:
                     print("  ❌ Не удалось установить вебхук")
                     add_web_log("Не удалось установить вебхук", "ERROR")
