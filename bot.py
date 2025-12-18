@@ -24,10 +24,10 @@ if not TOKEN:
 
 RENDER_DOMAIN = os.environ.get('RENDER_DOMAIN', 'https://monopoly-telegram-bot-7.onrender.com')
 WEBHOOK_PATH = '/webhook'
-WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"  # ← ИСПРАВЬТЕ ЕСЛИ У ВАС ( )
+WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"
 PORT = int(os.environ.get('PORT', 10000))
 
-# Настройка логирования для Render
+# ========== НАСТРОЙКА ЛОГИРОВАНИЯ ==========
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -39,71 +39,120 @@ web_logs = []
 MAX_WEB_LOGS = 100
 
 def add_web_log(message: str, level: str = "INFO"):
-    """Добавляет лог для отображения в веб-интерфейсе"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    log_entry = {
-        "timestamp": timestamp,
-        "level": level,
-        "message": message
-    }
-    web_logs.append(log_entry)
-    if len(web_logs) > MAX_WEB_LOGS:
-        web_logs.pop(0)
-    # Также печатаем в консоль для отладки
-    print(f"[WEB_LOG] {timestamp} {level}: {message}")
+    """УСИЛЕННАЯ версия - гарантированно работает"""
+    try:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = {
+            "timestamp": timestamp,
+            "level": level,
+            "message": message
+        }
+        
+        # 1. Всегда печатаем в консоль (для Render логов)
+        print(f"🟢 [WEB_LOG] {timestamp} {level}: {message}")
+        print(f"🟢 [WEB_LOG_DEBUG] Всего логов до добавления: {len(web_logs)}")
+        
+        # 2. Добавляем в список
+        web_logs.append(log_entry)
+        
+        # 3. Ограничиваем размер
+        if len(web_logs) > MAX_WEB_LOGS:
+            web_logs.pop(0)
+            
+        # 4. Проверяем результат
+        print(f"🟢 [WEB_LOG_DEBUG] Всего логов после добавления: {len(web_logs)}")
+        print(f"🟢 [WEB_LOG_DEBUG] Последний лог: {log_entry}")
+        
+    except Exception as e:
+        # Даже если ошибка - пишем в консоль
+        print(f"🔴 [WEB_LOG_ERROR] Ошибка в add_web_log: {e}")
+        import traceback
+        traceback.print_exc()
 
-# ========== ПРОСТЕЙШАЯ ИНИЦИАЛИЗАЦИЯ БОТА (БЕЗ ОШИБОК) ==========
+# ========== ТЕСТИРУЕМ add_web_log СРАЗУ ==========
+print("=" * 50)
+print("🟢 ТЕСТИРУЕМ add_web_log...")
+add_web_log("🟢 ТЕСТ: функция add_web_log работает", "DEBUG")
+print(f"🟢 РЕЗУЛЬТАТ: web_logs содержит {len(web_logs)} записей")
+if web_logs:
+    print(f"🟢 ПЕРВАЯ запись: {web_logs[0]}")
+print("=" * 50)
+
+# ========== ПРОСТЕЙШАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
 print("=" * 60)
 print("🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot")
 print("=" * 60)
 print(f"📅 Время запуска: {datetime.now()}")
 print(f"📋 Токен установлен: {'✅ Да' if TOKEN else '❌ Нет'}")
 
-application = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ
+application = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ БОТА
 
 if TOKEN:
     try:
         print("🤖 ПРОСТЕЙШАЯ инициализация бота...")
         
-        # Импортируем МИНИМУМ библиотек
-        from telegram.ext import Application
+        # 1. Импортируем МИНИМУМ библиотек
+        from telegram.ext import Application, CommandHandler
         
-        # 1. ПРОСТО создаем Application
-        print("  1. Создаем Application (без инициализации)...")
+        # 2. Создаем Application (ВЕБХУК РЕЖИМ)
+        print("  1. Создаем Application для вебхука...")
         application = Application.builder().token(TOKEN).build()
-        print(f"  ✅ Application создан: {application}")
+        print(f"  ✅ Application создан: {type(application)}")
         
-        # 2. НЕ добавляем обработчики сейчас - добавятся позже
-        print("  2. Обработчики будут добавлены позже")
+        # 3. Создаем ПУСТЫЕ обертки для обработчиков
+        # Они будут определены позже в том же файле
+        async def start_wrapper(update, context):
+            # Импортируем функции здесь, чтобы избежать циклических импортов
+            from bot import private_start
+            return await private_start(update, context)
         
-        # 3. НЕ вызываем initialize() - это для polling, не для webhook!
-        print("  3. Бот готов для вебхука")
+        async def help_wrapper(update, context):
+            from bot import help_command
+            return await help_command(update, context)
         
-        # 4. Проверяем
+        async def monopoly_wrapper(update, context):
+            from bot import group_monopoly
+            return await group_monopoly(update, context)
+        
+        # 4. Добавляем обработчики
+        print("  2. Добавляем обработчики...")
+        application.add_handler(CommandHandler("start", start_wrapper))
+        application.add_handler(CommandHandler("help", help_wrapper))
+        application.add_handler(CommandHandler("monopoly", monopoly_wrapper))
+        print("  ✅ Обработчики добавлены")
+        
+        # 5. НЕ вызываем initialize() - это для polling, не для webhook!
+        print("  3. Бот готов для вебхука (без инициализации)")
+        
+        # 6. Проверяем состояние
         if application:
             print(f"  ✅ Бот готов к работе")
+            if hasattr(application, 'bot'):
+                print(f"  ℹ️  application.bot = {application.bot}")
+            else:
+                print("  ⚠️  application не имеет атрибута 'bot'")
         else:
             print("  ⚠️  Бот не создан")
         
-        # 5. Логируем
+        # 7. Логируем
         add_web_log("🤖 Бот создан (простая инициализация)", "INFO")
         print("  ✅ Лог добавлен")
         
     except Exception as e:
-        print(f"❌ КРИТИЧЕСКАЯ ошибка: {e}")
+        print(f"❌ КРИТИЧЕСКАЯ ошибка инициализации: {e}")
         import traceback
         traceback.print_exc()
         application = None
-        add_web_log(f"❌ Критическая ошибка: {e}", "ERROR")
+        add_web_log(f"❌ Критическая ошибка инициализации: {e}", "ERROR")
 else:
     print("⚠️  Токен не установлен - бот не создан")
     application = None
+    add_web_log("⚠️  Токен не установлен, бот не создан", "WARNING")
 
-print(f"📊 Итог: application создан = {'Да' if application else 'Нет'}")
+print(f"📊 Итог: application создан = {'✅ Да' if application else '❌ Нет'}")
 print("=" * 60)
 print("✅ Инициализация завершена")
 print("=" * 60)
-
 # ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 # ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 from flask import Flask, request, render_template_string
