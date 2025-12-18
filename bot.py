@@ -89,61 +89,41 @@ application = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ БО�
 
 if TOKEN:
     try:
-        print("🤖 ПРОСТЕЙШАЯ инициализация бота...")
+        print("🤖 САМАЯ ПРОСТАЯ инициализация бота...")
         
-        # 1. Импортируем МИНИМУМ библиотек
-        from telegram.ext import Application, CommandHandler
-        
-        # 2. Создаем Application (ВЕБХУК РЕЖИМ)
-        print("  1. Создаем Application для вебхука...")
+        # 1. ТОЛЬКО создаем Application - БЕЗ обработчиков!
+        print("  1. Создаем Application...")
+        from telegram.ext import Application
         application = Application.builder().token(TOKEN).build()
         print(f"  ✅ Application создан: {type(application)}")
         
-        # 3. Создаем ПУСТЫЕ обертки для обработчиков
-        # Они будут определены позже в том же файле
-        async def start_wrapper(update, context):
-            # Импортируем функции здесь, чтобы избежать циклических импортов
-            from bot import private_start
-            return await private_start(update, context)
+        # 2. НЕ добавляем обработчики сейчас - они добавятся позже через application.add_handler
+        print("  2. Обработчики будут добавлены ПОЗЖЕ")
         
-        async def help_wrapper(update, context):
-            from bot import help_command
-            return await help_command(update, context)
-        
-        async def monopoly_wrapper(update, context):
-            from bot import group_monopoly
-            return await group_monopoly(update, context)
-        
-        # 4. Добавляем обработчики
-        print("  2. Добавляем обработчики...")
-        application.add_handler(CommandHandler("start", start_wrapper))
-        application.add_handler(CommandHandler("help", help_wrapper))
-        application.add_handler(CommandHandler("monopoly", monopoly_wrapper))
-        print("  ✅ Обработчики добавлены")
-        
-        # 5. НЕ вызываем initialize() - это для polling, не для webhook!
-        print("  3. Бот готов для вебхука (без инициализации)")
-        
-        # 6. Проверяем состояние
+        # 3. Проверяем состояние
         if application:
-            print(f"  ✅ Бот готов к работе")
-            if hasattr(application, 'bot'):
-                print(f"  ℹ️  application.bot = {application.bot}")
-            else:
-                print("  ⚠️  application не имеет атрибута 'bot'")
+            print(f"  ✅ Бот создан успешно")
+            # Проверяем бота
+            try:
+                if hasattr(application, 'bot') and application.bot:
+                    print(f"  ✅ application.bot доступен")
+                else:
+                    print("  ⚠️  application.bot = None или недоступен")
+            except:
+                print("  ⚠️  Не удалось проверить application.bot")
         else:
             print("  ⚠️  Бот не создан")
         
-        # 7. Логируем
-        add_web_log("🤖 Бот создан (простая инициализация)", "INFO")
+        # 4. Логируем
+        add_web_log("🤖 Бот создан (только Application объект)", "INFO")
         print("  ✅ Лог добавлен")
         
     except Exception as e:
-        print(f"❌ КРИТИЧЕСКАЯ ошибка инициализации: {e}")
+        print(f"❌ Ошибка создания Application: {e}")
         import traceback
         traceback.print_exc()
         application = None
-        add_web_log(f"❌ Критическая ошибка инициализации: {e}", "ERROR")
+        add_web_log(f"❌ Ошибка создания Application: {e}", "ERROR")
 else:
     print("⚠️  Токен не установлен - бот не создан")
     application = None
@@ -153,7 +133,7 @@ print(f"📊 Итог: application создан = {'✅ Да' if application els
 print("=" * 60)
 print("✅ Инициализация завершена")
 print("=" * 60)
-# ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
+
 # ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 from flask import Flask, request, render_template_string
 
