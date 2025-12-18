@@ -1744,9 +1744,17 @@ def main():
     application.add_handler(CallbackQueryHandler(build_hotel, pattern="^build_hotel_"))
     application.add_handler(CallbackQueryHandler(how_to_play, pattern="how_to_play"))
     application.add_handler(CallbackQueryHandler(cancel_game, pattern="^cancel_"))
-
+    
     try:
         loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
         logger.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
     except Exception as e:
         logger.error(f"❌ Ошибка вебхука: {e}")
+
+    # ВАЖНО: Запуск Flask сервера, чтобы Render видел активный порт
+    flask_app.run(host='0.0.0.0', port=PORT)
+
+# Этот блок запускает всё приложение
+if __name__ == '__main__':
+    main()
+    
