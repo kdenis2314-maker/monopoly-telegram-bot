@@ -1725,8 +1725,13 @@ def main():
         logger.error("❌ BOT_TOKEN не установлен. Инициализация Webhook невозможна.")
         return
 
-    # Создаем Application
     application = Application.builder().token(TOKEN).build()
+
+import asyncio
+asyncio.get_event_loop().run_until_complete(application.initialize())
+
+# Дальше идут твои команды...
+
     
     # Добавляем обработчики команд
     application.add_handler(CommandHandler("start", private_start))
