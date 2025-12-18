@@ -63,18 +63,17 @@ def ping():
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
 async def telegram_webhook():
     from telegram import Update
-    if not application: # Ошибка: application еще не определена
-    return "Bot application not initialized", 503
-
-try:
-    update_json = request.get_json(force=True)
-    # Создаем объект Update и прокидываем его в очередь бота
-    update = Update.de_json(update_json, application.bot)
-    await application.update_queue.put(update)
-    return "ok", 200
-except Exception as e:
-    logger.error(f"Ошибка вебхука: {e}") # Исправлено: {e}
-    return "error", 500
+    if not application:  # Это строка 65-66
+        return "Bot application not initialized", 503  # Это строка 67
+    
+    try:  # Это строка 68 - должна быть с тем же отступом, что и строка 65
+        update_json = request.get_json(force=True)
+        update = Update.de_json(update_json, application.bot)
+        await application.process_update(update)  # Используйте process_update вместо update_queue
+        return "ok", 200
+    except Exception as e:
+        logger.error(f"Ошибка вебхука: {e}")
+        return "error", 500
 
 # --- ОСНОВНОЙ КОД БОТА ---
 
