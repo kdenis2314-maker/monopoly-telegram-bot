@@ -1785,11 +1785,11 @@ def main():
     print(f"🔑 Токен: {'установлен' if TOKEN else 'НЕ УСТАНОВЛЕН!'}")
     print("="*60 + "\n")
     
+main()
 
 if __name__ == '__main__':
-    # В режиме Webhook, main() вызывается для настройки Application.
-    # Фактический запуск веб-сервера (flask_app) будет осуществляться Gunicorn.
-    main()
+    flask_app.run(host='0.0.0.0', port=PORT)
+    
         
 
                        
