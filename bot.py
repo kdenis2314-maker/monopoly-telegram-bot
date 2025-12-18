@@ -190,11 +190,14 @@ async def telegram_webhook():
     # Получаем JSON-обновление из POST-запроса
     update_json = request.get_json(force=True)
     
-    # Создаем объект Update из JSON
+        # Создаем объект Update из JSON
     update = Update.de_json(update_json, application.bot)
     
-    # Асинхронно обрабатываем обновление
-    await application.update_queue.put(update)
+    # Асинхронно обрабатываем обновление (ТЕПЕРЬ ПРАВИЛЬНО)
+    await application.update_queue.put(update) 
+        
+    return "ok" 
+
         
     return "ok" # Telegram ожидает ответ "ok" (HTTP 200)
 
