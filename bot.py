@@ -2479,116 +2479,101 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===================== ОСНОВНАЯ ФУНКЦИЯ =====================
 def main():
-    """Основная функция запуска сервиса"""
-    try:
-        # ========== ЛОГИРОВАНИЕ ЗАПУСКА ==========
-        print("=" * 60)
-        print("🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot")
-        print("=" * 60)
-        
-        add_web_log("🚀 Запуск сервиса", "INFO")
-        
-        # ========== ПРОВЕРКА КОНФИГУРАЦИИ ==========
-        print("\n📋 Конфигурация:")
-        print(f"  BOT_TOKEN: {'✅ Установлен' if TOKEN else '❌ Отсутствует'}")
-        if TOKEN:
-            token_short = TOKEN[:10] + "..." + TOKEN[-10:] if len(TOKEN) > 20 else TOKEN
-            print(f"           : {token_short}")
-        print(f"  PORT: {PORT}")
-        print(f"  DOMAIN: {RENDER_DOMAIN}")
-        print(f"  WEBHOOK: {WEBHOOK_URL}")
-        
-        # ========== ИНИЦИАЛИЗАЦИЯ БОТА В ФОНЕ ==========
-        if TOKEN:
-            print("\n🤖 Инициализация бота в фоновом режиме...")
-            add_web_log("Начинаю инициализацию бота в фоне", "INFO")
-            
-            # Импортируем здесь чтобы избежать циклических импортов
+    """Основная функция запуска - ТОЛЬКО Flask, без обработки вебхуков"""
+    print("=" * 60)
+    print("🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot")
+    print("=" * 60)
+    
+    # ========== ПРОСТАЯ ПРОВЕРКА ==========
+    print(f"\n📋 Конфигурация:")
+    print(f"  PORT: {PORT}")
+    print(f"  DOMAIN: {RENDER_DOMAIN}")
+    print(f"  WEBHOOK_URL: {WEBHOOK_URL}")
+    
+    if TOKEN:
+        token_preview = TOKEN[:10] + "..." + TOKEN[-10:] if len(TOKEN) > 20 else TOKEN
+        print(f"  BOT_TOKEN: ✅ Установлен ({token_preview})")
+    else:
+        print(f"  BOT_TOKEN: ❌ Отсутствует")
+        print("  ⚠️  Бот не будет работать, но веб-интерфейс доступен")
+    
+    # ========== ЗАПУСК FLASK ==========
+    print("\n" + "=" * 60)
+    print("🌐 Запуск веб-сервера Flask...")
+    print(f"  Хост: 0.0.0.0")
+    print(f"  Порт: {PORT}")
+    print(f"  Режим: production")
+    
+    print("\n🔗 Доступные URL:")
+    print(f"  • {RENDER_DOMAIN}/ - Статус бота")
+    print(f"  • {RENDER_DOMAIN}/ping - Проверка работы")
+    print(f"  • {RENDER_DOMAIN}/logs - Логи")
+    print(f"  • {RENDER_DOMAIN}/webhook - Вебхук Telegram")
+    print(f"  • {RENDER_DOMAIN}/set_webhook_manual - Установка вебхука")
+    
+    print("\n🎮 Игровая статистика:")
+    active_games = len([g for g in games_storage.values() if g.get('status') != 'finished'])
+    print(f"  Активных игр: {active_games}")
+    print(f"  Всего игр в памяти: {len(games_storage)}")
+    
+    print("=" * 60)
+    print("\n✅ Сервис запущен!\n")
+    
+    # ========== ЛОГИРОВАНИЕ ==========
+    add_web_log(f"Сервис запущен. PORT={PORT}, DOMAIN={RENDER_DOMAIN}", "INFO")
+    
+    if TOKEN:
+        add_web_log(f"BOT_TOKEN установлен ({len(TOKEN)} символов)", "INFO")
+        # Запускаем инициализацию бота в ФОНЕ (если нужно)
+        try:
             from threading import Thread
             import time
             
-            def init_bot_background():
-                """Инициализация бота в фоновом потоке"""
+            def bg_init():
+                """Фоновая инициализация бота"""
                 try:
-                    print("  🚀 Запуск инициализации...")
-                    success = init_bot_sync()
+                    print("  🤖 Фоновая инициализация бота...")
+                    add_web_log("Фоновая инициализация бота начата", "INFO")
+                    time.sleep(2)  # Ждем немного перед стартом
                     
-                    if success and application is not None:
-                        print("  ✅ Бот успешно инициализирован")
+                    # Только БАЗОВАЯ инициализация
+                    global application
+                    if application is None:
+                        from telegram.ext import Application
+                        application = Application.builder().token(TOKEN).build()
+                        # Минимальные обработчики
+                        application.add_handler(CommandHandler("start", private_start))
+                        application.add_handler(CommandHandler("help", help_command))
+                        
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(application.initialize())
+                        loop.run_until_complete(application.start())
+                        
                         add_web_log("✅ Бот инициализирован в фоне", "INFO")
-                        
-                        # Пытаемся установить вебхук
-                        try:
-                            import requests
-                            webhook_url = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"
-                            api_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={webhook_url}"
-                            response = requests.get(api_url, timeout=10)
-                            
-                            if response.status_code == 200:
-                                print(f"  ✅ Вебхук установлен: {webhook_url}")
-                                add_web_log(f"Вебхук установлен: {webhook_url}", "INFO")
-                            else:
-                                print(f"  ⚠️ Не удалось установить вебхук: {response.status_code}")
-                        except Exception as wh_error:
-                            print(f"  ⚠️ Ошибка установки вебхука: {wh_error}")
-                    else:
-                        print("  ❌ Не удалось инициализировать бота")
-                        add_web_log("❌ Не удалось инициализировать бота", "ERROR")
-                        
+                        print("  ✅ Бот инициализирован в фоне")
                 except Exception as e:
-                    print(f"  ❌ Ошибка инициализации: {e}")
-                    add_web_log(f"Ошибка инициализации бота: {e}", "ERROR")
+                    add_web_log(f"❌ Ошибка фоновой инициализации: {e}", "ERROR")
+                    print(f"  ❌ Ошибка инициализации бота: {e}")
             
-            # Запускаем в фоновом потоке
-            bot_thread = Thread(target=init_bot_background, daemon=True)
-            bot_thread.start()
-            time.sleep(2)  # Даем немного времени на старт
-        else:
-            print("\n⚠️  BOT_TOKEN не установлен")
-            print("ℹ️  Бот не будет работать, но веб-интерфейс доступен")
-            add_web_log("BOT_TOKEN не установлен, бот не инициализирован", "WARNING")
-        
-        # ========== ЗАПУСК FLASK СЕРВЕРА ==========
-        print("\n" + "=" * 60)
-        print("🌐 Запуск веб-сервера Flask")
-        print(f"  Хост: 0.0.0.0")
-        print(f"  Порт: {PORT}")
-        print(f"  Режим: production")
-        
-        print("\n📊 Статистика при запуске:")
-        print(f"  Активных игр: {len([g for g in games_storage.values() if g.get('status') != 'finished'])}")
-        print(f"  Всего игр в памяти: {len(games_storage)}")
-        
-        print("\n🔗 Доступные URL:")
-        print(f"  • {RENDER_DOMAIN}/ - Статус бота")
-        print(f"  • {RENDER_DOMAIN}/ping - Проверка работы")
-        print(f"  • {RENDER_DOMAIN}/logs - Логи")
-        print(f"  • {RENDER_DOMAIN}/webhook - Вебхук Telegram")
-        print(f"  • {RENDER_DOMAIN}/set_webhook_manual - Установка вебхука")
-        
-        print("=" * 60)
-        print("\n✅ Сервис запущен и работает\n")
-        
-        add_web_log(f"Flask запущен на порту {PORT}", "INFO")
-        
-        # ЗАПУСКАЕМ FLASK
-        flask_app.run(
-            host='0.0.0.0',
-            port=PORT,
-            debug=False,
-            threaded=True,
-            use_reloader=False  # Важно для Render!
-        )
-        
-    except KeyboardInterrupt:
-        print("\n\n🛑 Остановка сервиса по запросу пользователя...")
-        add_web_log("Сервис остановлен (KeyboardInterrupt)", "INFO")
-        
-    except Exception as e:
-        print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ: {e}")
-        add_web_log(f"Критическая ошибка при запуске: {e}", "ERROR")
-        traceback.print_exc()
-
+            # Запускаем в отдельном потоке
+            init_thread = Thread(target=bg_init, daemon=True)
+            init_thread.start()
+            
+        except Exception as e:
+            print(f"  ⚠️ Не удалось запустить фоновую инициализацию: {e}")
+    else:
+        add_web_log("BOT_TOKEN не установлен, бот не инициализирован", "WARNING")
+    
+    # ========== ЗАПУСК FLASK СЕРВЕРА ==========
+    # ВАЖНО: NO DEBUG MODE для production!
+    flask_app.run(
+        host='0.0.0.0',
+        port=PORT,
+        debug=False,
+        threaded=True,
+        use_reloader=False  # КРИТИЧЕСКИ ВАЖНО для Render!
+    )
 
 # ========== ТОЧКА ВХОДА ==========
 if __name__ == "__main__":
