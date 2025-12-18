@@ -1562,24 +1562,24 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 *Для начала игры добавьте бота в группу и напишите /monopoly*""",
         parse_mode='Markdown'
 )
+    
 def main():
     global application
     if not TOKEN:
+        logger.error("❌ BOT_TOKEN не найден!")
         return
 
+    # 1. Создаем объект приложения
+    from telegram.ext import Application, CommandHandler, CallbackQueryHandler
     application = Application.builder().token(TOKEN).build()
-    
-    import asyncio
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(application.initialize())
-    loop.run_until_complete(application.start()) # Добавлено со скриншота
 
+    # 2. Регистрируем все ваши обработчики (Handlers)
     # Команды
     application.add_handler(CommandHandler("start", private_start))
     application.add_handler(CommandHandler("monopoly", group_monopoly))
     application.add_handler(CommandHandler("help", help_command))
 
-    # Кнопки (Убедитесь, что отступ ровно 4 пробела)
+    # Кнопки (Callback queries)
     application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
     application.add_handler(CallbackQueryHandler(start_game, pattern="^start_"))
     application.add_handler(CallbackQueryHandler(roll_dice, pattern="^roll_"))
@@ -1594,16 +1594,36 @@ def main():
     application.add_handler(CallbackQueryHandler(how_to_play, pattern="how_to_play"))
     application.add_handler(CallbackQueryHandler(cancel_game, pattern="^cancel_"))
     
+    # Обработчик ошибок
+    application.add_error_handler(error_handler)
+
+    # 3. Асинхронная инициализация
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    # Запускаем внутренние механизмы бота
+    loop.run_until_complete(application.initialize())
+    loop.run_until_complete(application.start()) 
+    
+    # Установка вебхука в Telegram
     try:
         loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
-        logger.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
+        logger.info(f"✅ Webhook установлен на: {WEBHOOK_URL}")
     except Exception as e:
-        logger.error(f"❌ Ошибка вебхука: {e}")
+        logger.error(f"❌ Ошибка установки вебхука: {e}")
 
-    # ВАЖНО: Запуск Flask сервера, чтобы Render видел активный порт
+    # 4. ЗАПУСК FLASK (это блокирующая операция, должна быть последней)
+    logger.info(f"🚀 Запуск Flask на порту {PORT}...")
+    # host='0.0.0.0' — обязательное требование Render
     flask_app.run(host='0.0.0.0', port=PORT)
 
-# Этот блок запускает всё приложение
 if __name__ == '__main__':
     main()
+    
+
+
     
