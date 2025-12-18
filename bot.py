@@ -85,45 +85,67 @@ print("=" * 60)
 print(f"📅 Время запуска: {datetime.now()}")
 print(f"📋 Токен установлен: {'✅ Да' if TOKEN else '❌ Нет'}")
 
-application = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ
+bot = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ
 
 if TOKEN:
     try:
         print("🤖 МИНИМАЛЬНАЯ инициализация...")
         
-        # 1. Пробуем простейший импорт
+        # 1. Импортируем telegram
         print("  1. Тестируем импорт...")
-        try:
-            import telegram
-            print(f"  ✅ telegram импортирован")
-        except ImportError as e:
-            print(f"  ❌ Ошибка импорта telegram: {e}")
-            raise
+        import telegram
+        from telegram import Update
+        from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
         
-        # 2. Создаем ПРОСТОГО бота
-        print("  2. Создаем простого бота...")
-        bot = telegram.Bot(token=TOKEN)
+        print(f"  ✅ telegram импортирован")
+        
+        # 2. Создаем Updater для вебхука
+        print("  2. Создаем Updater...")
+        updater = Updater(token=TOKEN, use_context=True)
+        bot = updater.bot
+        dispatcher = updater.dispatcher
+        
         print(f"  ✅ Бот создан: {bot}")
         
-        # 3. Используем bot как application
-        application = bot
-        print(f"  ✅ Application установлен: {application}")
+        # 3. Добавляем только базовые команды
+        print("  3. Регистрируем обработчики...")
         
-        # 4. Логируем
-        add_web_log("🤖 Минимальный бот создан", "INFO")
+        def simple_start(update, context):
+            """Упрощенный обработчик /start"""
+            update.message.reply_text(
+                "🎩 Добро пожаловать в Монополию!\n\n"
+                "Этот бот работает в режиме вебхука.\n"
+                "Добавьте меня в группу и используйте /monopoly"
+            )
+        
+        dispatcher.add_handler(CommandHandler("start", simple_start))
+        
+        # 4. Настраиваем вебхук
+        print("  4. Настраиваем вебхук...")
+        updater.start_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=WEBHOOK_URL
+        )
+        
+        print(f"  ✅ Вебхук настроен на {WEBHOOK_URL}")
+        
+        # 5. Логируем
+        add_web_log("🤖 Простой бот создан и готов к работе", "INFO")
         print("  ✅ Лог добавлен")
         
     except Exception as e:
         print(f"❌ ФАТАЛЬНАЯ ошибка: {e}")
         import traceback
         traceback.print_exc()
-        application = None
+        bot = None
         add_web_log(f"❌ Фатальная ошибка: {e}", "ERROR")
 else:
     print("⚠️  Токен не установлен")
-    application = None
+    bot = None
 
-print(f"📊 Итог: application = {application}")
+print(f"📊 Итог: bot = {bot}")
 print("=" * 60)
 print("✅ Инициализация завершена")
 print("=" * 60)
@@ -773,7 +795,7 @@ def telegram_webhook():
     try:
         add_web_log("📩 Вебхук получен", "INFO")
         
-        if application is None:
+        if bot is None:
             add_web_log("⚠️ Бот не создан", "WARNING")
             return "ok", 200
             
@@ -782,22 +804,25 @@ def telegram_webhook():
         if not data:
             return "ok", 200
             
-        # Просто логируем
-        update_id = data.get('update_id', 'unknown')
-        add_web_log(f"📩 Вебхук ID: {update_id}", "INFO")
-        
-        # Если есть сообщение
-        if 'message' in data:
-            msg = data['message']
-            text = msg.get('text', '')
-            user = msg.get('from', {})
-            username = user.get('username', user.get('first_name', 'Unknown'))
-            add_web_log(f"👤 @{username}: {text[:50]}", "INFO")
+        # Обрабатываем команду /start
+        if 'message' in data and 'text' in data['message']:
+            text = data['message']['text']
+            chat_id = data['message']['chat']['id']
+            user = data['message']['from']
+            
+            if text == '/start':
+                bot.send_message(
+                    chat_id=chat_id,
+                    text="🎩 Добро пожаловать в Монополию!\n\n"
+                         "Это демо-версия бота.\n"
+                         "Полная версия в разработке."
+                )
+                add_web_log(f"👤 Обработан /start от @{user.get('username', user.get('first_name', 'Unknown'))}", "INFO")
         
         return "ok", 200
         
     except Exception as e:
-        add_web_log(f"❌ Ошибка: {e}", "ERROR")
+        add_web_log(f"❌ Ошибка в вебхуке: {e}", "ERROR")
         return "ok", 200
         
 def init_bot_sync():
