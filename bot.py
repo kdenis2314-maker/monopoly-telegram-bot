@@ -15,6 +15,19 @@ from threading import Thread
 from queue import Queue
 import html
 
+# ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
+application = None  # ← ВАЖНО! Должно быть здесь!
+TOKEN = os.environ.get('BOT_TOKEN') 
+if not TOKEN:
+    print("⚠️ ВНИМАНИЕ: Переменная окружения BOT_TOKEN не установлена!")
+    print("ℹ️ Добавьте переменную BOT_TOKEN в настройках Render")
+    print("ℹ️ Получить токен: @BotFather в Telegram -> /newbot")
+
+RENDER_DOMAIN = os.environ.get('RENDER_DOMAIN', 'https://monopoly-telegram-bot-7.onrender.com')
+WEBHOOK_PATH = '/webhook'
+WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"
+PORT = int(os.environ.get('PORT', 10000))
+
 # ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 from flask import Flask, request, render_template_string
 
