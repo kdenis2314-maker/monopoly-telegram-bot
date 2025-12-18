@@ -1703,7 +1703,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Все действия в игре выполняются через кнопки под сообщениями.
 
 💰 *Экономика игры:*
-• Стартовый капитал: ${START_MONONEY}
+• Стартовый капитал: ${START_MONEY}
 • Проход старта: $200
 • Тюремный штраф: $50 
 
@@ -1715,46 +1715,49 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
 )
 def main():
-    """
-    Инициализирует Application, регистрирует хендлеры и ставит Webhook.
-    """
     global application
-    
     if not TOKEN:
-        logger.error("❌ BOT_TOKEN не установлен!")
         return
 
-    # 1. Создаем приложение
+    # 1. Сборка приложения
     application = Application.builder().token(TOKEN).build()
     
-    # 2. Инициализируем бота для работы в асинхронном режиме
-    import asyncio
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(application.initialize())
-    
-    # 3. Регистрация команд
+    # 2. Регистрация ВСЕХ хендлеров
     application.add_handler(CommandHandler("start", private_start))
     application.add_handler(CommandHandler("monopoly", group_monopoly))
+    application.add_handler(CommandHandler("help", help_command))
     
-    # Регистрация обработчиков кнопок (убедись, что эти функции есть в коде)
-        application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
+    # Регистрация кнопок
+    application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
     application.add_handler(CallbackQueryHandler(start_game, pattern="^start_"))
+    application.add_handler(CallbackQueryHandler(roll_dice, pattern="^roll_"))
+    application.add_handler(CallbackQueryHandler(buy_property, pattern="^buy_"))
+    application.add_handler(CallbackQueryHandler(skip_turn, pattern="^skip_"))
+    application.add_handler(CallbackQueryHandler(end_turn, pattern="^end_"))
+    application.add_handler(CallbackQueryHandler(check_balance, pattern="^balance_"))
+    application.add_handler(CallbackQueryHandler(check_properties, pattern="^props_"))
+    application.add_handler(CallbackQueryHandler(build_menu, pattern="^build_"))
+    application.add_handler(CallbackQueryHandler(build_house, pattern="^build_house_"))
+    application.add_handler(CallbackQueryHandler(build_hotel, pattern="^build_hotel_"))
+    application.add_handler(CallbackQueryHandler(how_to_play, pattern="how_to_play"))
+    application.add_handler(CallbackQueryHandler(cancel_game, pattern="^cancel_"))
 
+    # 3. Асинхронная инициализация
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(application.initialize())
+    loop.run_until_complete(application.start()) # Важно запустить!
     
-    # 4. Установка Webhook (ОБЯЗАТЕЛЬНО)
-    try:
-        loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
-        logger.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
-    except Exception as e:
-        logger.error(f"❌ Ошибка вебхука: {e}")
+    # 4. Установка Webhook
+    loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
+    logger.info(f"✅ Webhook set to: {WEBHOOK_URL}")
 
-# ========== ЗАПУСК ==========
-# Эти строки должны быть БЕЗ ПРОБЕЛОВ в начале
+# Запускаем инициализацию перед Flask
 main()
 
 if __name__ == '__main__':
-    logger.info(f"🚀 Запуск сервера на порту {PORT}")
+    # Flask запускается в основном потоке
     flask_app.run(host='0.0.0.0', port=PORT)
+
 
         
 
