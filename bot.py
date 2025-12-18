@@ -693,6 +693,53 @@ def telegram_webhook():
         add_web_log(error_msg, "ERROR")
         logger.error(error_msg, exc_info=True)
         return "error", 500
+
+# ========== СИНХРОННАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
+def init_bot_sync():
+    """Синхронная инициализация бота"""
+    global application
+    
+    if application is not None:
+        add_web_log("✅ Бот уже инициализирован", "INFO")
+        return True
+    
+    if not TOKEN:
+        add_web_log("❌ BOT_TOKEN не установлен!", "ERROR")
+        return False
+    
+    try:
+        add_web_log("🔄 Инициализация бота...", "INFO")
+        
+        # Импортируем здесь, чтобы избежать циклических импортов
+        from telegram.ext import Application as TelegramApplication
+        
+        application = TelegramApplication.builder().token(TOKEN).build()
+        
+        # Регистрируем обработчики
+        try:
+            # Команды
+            application.add_handler(CommandHandler("start", private_start))
+            application.add_handler(CommandHandler("monopoly", group_monopoly))
+            application.add_handler(CommandHandler("help", help_command))
+            
+            add_web_log("✅ Базовые обработчики зарегистрированы", "INFO")
+        except Exception as handler_error:
+            add_web_log(f"⚠️ Ошибка регистрации обработчиков: {handler_error}", "WARNING")
+        
+        # Инициализируем
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(application.initialize())
+        loop.run_until_complete(application.start())
+        
+        add_web_log("✅ Бот успешно инициализирован!", "INFO")
+        return True
+        
+    except Exception as e:
+        error_msg = f"❌ Ошибка инициализации бота: {str(e)}"
+        add_web_log(error_msg, "ERROR")
+        return False
+        
 # ========== ОСНОВНОЙ КОД БОТА ==========
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
