@@ -2516,37 +2516,270 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===================== ОСНОВНАЯ ФУНКЦИЯ =====================
 def main():
-    """Основная функция запуска"""
+    """Основная функция запуска бота Монополии"""
     try:
-        add_web_log("=" * 50, "INFO")
+        # ========== ЛОГИРОВАНИЕ ЗАПУСКА ==========
+        startup_banner = """
+        ╔══════════════════════════════════════════════════════════╗
+        ║                  🎩 МОНОПОЛИЯ ПРЕМИУМ                   ║
+        ║                 Telegram Bot v2.0 Render                ║
+        ╚══════════════════════════════════════════════════════════╝
+        """
+        print(startup_banner)
+        
+        add_web_log("=" * 60, "INFO")
         add_web_log("🚀 ЗАПУСК БОТА МОНОПОЛИЯ", "INFO")
-        add_web_log(f"Токен бота: {'✅ Установлен' if TOKEN else '❌ Отсутствует'}", "INFO")
-        add_web_log(f"Домен: {RENDER_DOMAIN}", "INFO")
-        add_web_log(f"Вебхук URL: {WEBHOOK_URL}", "INFO")
-        add_web_log(f"Порт: {PORT}", "INFO")
-        add_web_log("=" * 50, "INFO")
+        add_web_log(f"Версия: Render Webhook Edition", "INFO")
+        add_web_log(f"Дата запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "INFO")
+        add_web_log("=" * 60, "INFO")
         
-        # Инициализация бота
-        bot = init_bot()
+        # ========== ПРОВЕРКА КОНФИГУРАЦИИ ==========
+        config_status = []
         
-        if bot is None:
-            add_web_log("❌ Бот не был инициализирован. Проверьте BOT_TOKEN.", "ERROR")
-            print("❌ Бот не был инициализирован. Проверьте переменную окружения BOT_TOKEN.")
+        # Проверка токена
+        if TOKEN:
+            token_status = "✅ УСТАНОВЛЕН"
+            token_short = TOKEN[:10] + "..." + TOKEN[-10:] if len(TOKEN) > 20 else TOKEN
+            config_status.append(f"BOT_TOKEN: {token_status} ({token_short})")
         else:
-            add_web_log("✅ Бот успешно инициализирован и готов к работе!", "INFO")
-            print("✅ Бот успешно инициализирован!")
+            token_status = "❌ ОТСУТСТВУЕТ"
+            config_status.append(f"BOT_TOKEN: {token_status}")
         
-        # Запуск Flask приложения
-        add_web_log(f"🌐 Запуск Flask на порту {PORT}", "INFO")
-        print(f"🌐 Flask запущен на порту {PORT}")
+        # Проверка вебхука
+        webhook_status = "✅ " + WEBHOOK_URL if WEBHOOK_URL else "❌ НЕ НАСТРОЕН"
+        config_status.append(f"WEBHOOK_URL: {webhook_status}")
         
-        flask_app.run(host='0.0.0.0', port=PORT, debug=False)
+        # Проверка порта
+        config_status.append(f"PORT: {PORT}")
+        
+        # Проверка домена
+        config_status.append(f"DOMAIN: {RENDER_DOMAIN}")
+        
+        for status in config_status:
+            add_web_log(status, "INFO")
+            print(f"  {status}")
+        
+        add_web_log("=" * 60, "INFO")
+        
+        # ========== ПРОВЕРКА ТОКЕНА ==========
+        if not TOKEN:
+            error_msg = """
+            ❌ КРИТИЧЕСКАЯ ОШИБКА: BOT_TOKEN не установлен!
+            
+            Действия:
+            1. Зайдите в настройки Render.com
+            2. Добавьте Environment Variable:
+               Key: BOT_TOKEN
+               Value: Ваш токен от @BotFather
+            3. Перезапустите сервис
+            
+            Как получить токен:
+            1. Откройте Telegram
+            2. Найдите @BotFather
+            3. Отправьте /newbot
+            4. Следуйте инструкциям
+            5. Скопируйте полученный токен
+            """
+            print(error_msg)
+            add_web_log("Критическая ошибка: BOT_TOKEN не установлен", "ERROR")
+            
+            # Запускаем Flask без бота, чтобы показать страницу с ошибкой
+            print(f"\n🌐 Запуск Flask (только веб-интерфейс) на порту {PORT}...")
+            add_web_log(f"Запуск Flask на порту {PORT} (без бота)", "WARNING")
+            flask_app.run(host='0.0.0.0', port=PORT, debug=False)
+            return
+        
+        # ========== ИНИЦИАЛИЗАЦИЯ БОТА ==========
+        print("\n🔄 Инициализация Telegram бота...")
+        add_web_log("Инициализация бота...", "INFO")
+        
+        bot_initialized = False
+        try:
+            # Пытаемся инициализировать бота
+            from telegram.ext import Application as TelegramApplication
+            
+            print("  Создание объекта Application...")
+            application = TelegramApplication.builder().token(TOKEN).build()
+            
+            print("  Регистрация обработчиков...")
+            # Регистрируем основные обработчики
+            application.add_handler(CommandHandler("start", private_start))
+            application.add_handler(CommandHandler("monopoly", group_monopoly))
+            application.add_handler(CommandHandler("help", help_command))
+            application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
+            application.add_handler(CallbackQueryHandler(start_game, pattern="^start_"))
+            application.add_handler(CallbackQueryHandler(roll_dice, pattern="^roll_"))
+            
+            print("  Инициализация бота...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(application.initialize())
+            loop.run_until_complete(application.start())
+            
+            bot_initialized = True
+            print("  ✅ Бот инициализирован успешно!")
+            add_web_log("Бот инициализирован успешно", "INFO")
+            
+            # Сохраняем в глобальную переменную
+            globals()['application'] = application
+            
+        except Exception as init_error:
+            error_msg = f"❌ Ошибка инициализации бота: {str(init_error)}"
+            print(f"  {error_msg}")
+            add_web_log(error_msg, "ERROR")
+            
+            # Проверяем токен через API Telegram
+            try:
+                import requests
+                print("\n🔍 Проверка токена через Telegram API...")
+                response = requests.get(f"https://api.telegram.org/bot{TOKEN}/getMe", timeout=10)
+                if response.status_code == 200:
+                    print("  ✅ Токен валидный!")
+                    bot_info = response.json().get('result', {})
+                    print(f"  Имя бота: @{bot_info.get('username', 'unknown')}")
+                    print(f"  Название: {bot_info.get('first_name', 'unknown')}")
+                else:
+                    print(f"  ❌ Токен невалидный. Ошибка: {response.status_code}")
+                    print(f"  Ответ: {response.text}")
+            except Exception as token_error:
+                print(f"  ❌ Не удалось проверить токен: {token_error}")
+        
+        # ========== УСТАНОВКА ВЕБХУКА ==========
+        if bot_initialized and application:
+            print("\n🌐 Настройка вебхука...")
+            add_web_log("Настройка вебхука...", "INFO")
+            
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Удаляем старый вебхук (если есть)
+                print("  Очистка старого вебхука...")
+                await application.bot.delete_webhook()
+                
+                # Устанавливаем новый вебхук
+                print(f"  Установка вебхука на: {WEBHOOK_URL}")
+                success = loop.run_until_complete(application.bot.set_webhook(
+                    url=WEBHOOK_URL,
+                    max_connections=40,
+                    allowed_updates=["message", "callback_query"]
+                ))
+                
+                if success:
+                    print("  ✅ Вебхук успешно установлен!")
+                    add_web_log(f"Вебхук установлен: {WEBHOOK_URL}", "INFO")
+                    
+                    # Проверяем статус вебхука
+                    webhook_info = loop.run_until_complete(application.bot.get_webhook_info())
+                    print(f"  URL вебхука: {webhook_info.url}")
+                    print(f"  Ожидающих сообщений: {webhook_info.pending_update_count}")
+                    
+                    if webhook_info.last_error_message:
+                        print(f"  ⚠️ Последняя ошибка: {webhook_info.last_error_message}")
+                else:
+                    print("  ❌ Не удалось установить вебхук")
+                    add_web_log("Не удалось установить вебхук", "ERROR")
+                    
+            except Exception as webhook_error:
+                print(f"  ❌ Ошибка настройки вебхука: {webhook_error}")
+                add_web_log(f"Ошибка настройки вебхука: {webhook_error}", "ERROR")
+        
+        # ========== ИТОГОВЫЙ СТАТУС ==========
+        print("\n" + "=" * 60)
+        print("📊 ИТОГОВЫЙ СТАТУС:")
+        print(f"  Бот: {'✅ АКТИВЕН' if bot_initialized else '❌ НЕ АКТИВЕН'}")
+        print(f"  Flask: ✅ ЗАПУЩЕН на порту {PORT}")
+        print(f"  Веб-интерфейс: http://0.0.0.0:{PORT}")
+        print(f"  Внешний URL: {RENDER_DOMAIN}")
+        
+        if bot_initialized:
+            print("\n🎮 Бот готов к работе!")
+            print("  Для тестирования отправьте боту команду /start")
+            print("  Для игры добавьте бота в группу и напишите /monopoly")
+        else:
+            print("\n⚠️  Бот не активирован, но веб-интерфейс работает")
+            print("  Проверьте BOT_TOKEN и перезапустите приложение")
+        
+        print("=" * 60)
+        print(f"\n🕒 Сервис запущен: {datetime.now().strftime('%H:%M:%S')}")
+        add_web_log(f"Сервис полностью запущен", "INFO")
+        
+        # ========== ЗАПУСК FLASK ==========
+        try:
+            print(f"\n🌐 Запуск Flask сервера...")
+            print(f"  Хост: 0.0.0.0")
+            print(f"  Порт: {PORT}")
+            print(f"  Режим: production")
+            print("\n📈 Доступные эндпоинты:")
+            print(f"  • {RENDER_DOMAIN}/      - Главная страница")
+            print(f"  • {RENDER_DOMAIN}/ping  - Проверка работы")
+            print(f"  • {RENDER_DOMAIN}/logs  - Просмотр логов")
+            print(f"  • {RENDER_DOMAIN}/webhook - Вебхук для Telegram")
+            print(f"  • {RENDER_DOMAIN}/set_webhook_manual - Ручная настройка вебхука")
+            
+            # Добавляем информацию о доступных играх
+            active_games = len([g for g in games_storage.values() if g.get('status') != 'finished'])
+            print(f"\n🎮 Статистика:")
+            print(f"  Активных игр: {active_games}")
+            print(f"  Всего игр в памяти: {len(games_storage)}")
+            
+            print("\n" + "=" * 60)
+            print("✅ СЕРВИС ЗАПУЩЕН И РАБОТАЕТ")
+            print("=" * 60)
+            
+            # Запускаем Flask
+            flask_app.run(
+                host='0.0.0.0',
+                port=PORT,
+                debug=False,
+                threaded=True
+            )
+            
+        except Exception as flask_error:
+            error_msg = f"❌ Ошибка запуска Flask: {str(flask_error)}"
+            print(error_msg)
+            add_web_log(error_msg, "ERROR")
+            raise
+        
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Получен сигнал прерывания (Ctrl+C)")
+        add_web_log("Сервис остановлен пользователем", "INFO")
+        print("🛑 Остановка сервиса...")
+        
+        # Очистка ресурсов
+        try:
+            if 'application' in globals() and application:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(application.stop())
+                loop.run_until_complete(application.shutdown())
+                print("✅ Бот остановлен корректно")
+        except:
+            pass
+        
+        print("👋 Завершение работы")
         
     except Exception as e:
-        error_msg = f"❌ Критическая ошибка при запуске: {str(e)}"
-        add_web_log(error_msg, "ERROR")
+        error_msg = f"""
+        ❌ КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ:
+        {str(e)}
+        
+        Трассировка:
+        {traceback.format_exc()}
+        """
         print(error_msg)
-        traceback.print_exc()
-
-if __name__ == '__main__':
-    main()
+        add_web_log(f"Критическая ошибка при запуске: {str(e)}", "ERROR")
+        
+        # Пытаемся сохранить логи в файл
+        try:
+            with open('error_log.txt', 'a', encoding='utf-8') as f:
+                f.write(f"\n{'='*60}\n")
+                f.write(f"Ошибка: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"{str(e)}\n")
+                f.write(f"{traceback.format_exc()}\n")
+                f.write(f"{'='*60}\n")
+            print("📄 Логи ошибок сохранены в error_log.txt")
+        except:
+            pass
+        
+        raise
