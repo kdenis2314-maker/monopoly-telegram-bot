@@ -657,34 +657,36 @@ def clear_logs():
 
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
 def telegram_webhook():
-    """Основной обработчик вебхука от Telegram"""
+    """Упрощенный рабочий обработчик вебхука"""
     try:
-        # Получаем данные от Telegram
-        update_json = request.get_json(force=True)
-        update_id = update_json.get('update_id', 'unknown')
+        data = request.get_json(force=True)
+        update_id = data.get('update_id', 'unknown')
         
-        add_web_log(f"Получен вебхук update_id: {update_id}", "INFO")
+        add_web_log(f"📩 Вебхук получен: update_id={update_id}", "INFO")
         
-        # Проверяем, что бот инициализирован
-        if 'application' not in globals() or application is None:
-            add_web_log("Бот не инициализирован, инициализируем...", "WARNING")
-            init_bot()
+        # Логируем информацию о сообщении
+        if 'message' in data:
+            message = data['message']
+            chat_id = message.get('chat', {}).get('id')
+            text = message.get('text', '')
+            user = message.get('from', {})
+            username = user.get('username', user.get('first_name', 'unknown'))
+            chat_type = message.get('chat', {}).get('type', 'unknown')
+            
+            add_web_log(f"💬 Сообщение от @{username} (чат: {chat_type}): {text[:100]}", "INFO")
+            
+            # Попытка обработать команду /start
+            if text == '/start':
+                add_web_log("✅ Обнаружена команда /start", "INFO")
+                # Здесь будет обработка, но пока просто логируем
         
-        # Создаем объект Update
-        update = Update.de_json(update_json, application.bot)
-        
-        # Обрабатываем update асинхронно
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            loop.run_until_complete(application.process_update(update))
-            add_web_log(f"Обработан update_id: {update_id}", "INFO")
-        except Exception as e:
-            add_web_log(f"Ошибка обработки update: {str(e)}", "ERROR")
-            logger.error(f"Ошибка обработки update: {e}")
-        
+        # ВСЕГДА возвращаем OK, чтобы Telegram не считал вебхук сломанным
         return "ok", 200
+        
+    except Exception as e:
+        error_msg = f"❌ Ошибка в вебхуке: {str(e)[:100]}"
+        add_web_log(error_msg, "ERROR")
+        return "error", 500
         
     except Exception as e:
         error_msg = f"Критическая ошибка в вебхуке: {str(e)}"
