@@ -85,69 +85,11 @@ print("=" * 60)
 print(f"📅 Время запуска: {datetime.now()}")
 print(f"📋 Токен установлен: {'✅ Да' if TOKEN else '❌ Нет'}")
 
-bot = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ
-
-if TOKEN:
-    try:
-        print("🤖 МИНИМАЛЬНАЯ инициализация...")
-        
-        # 1. Импортируем telegram
-        print("  1. Тестируем импорт...")
-        import telegram
-        from telegram import Update
-        from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
-        
-        print(f"  ✅ telegram импортирован")
-        
-        # 2. Создаем Updater для вебхука
-        print("  2. Создаем Updater...")
-        updater = Updater(token=TOKEN, use_context=True)
-        bot = updater.bot
-        dispatcher = updater.dispatcher
-        
-        print(f"  ✅ Бот создан: {bot}")
-        
-        # 3. Добавляем только базовые команды
-        print("  3. Регистрируем обработчики...")
-        
-        def simple_start(update, context):
-            """Упрощенный обработчик /start"""
-            update.message.reply_text(
-                "🎩 Добро пожаловать в Монополию!\n\n"
-                "Этот бот работает в режиме вебхука.\n"
-                "Добавьте меня в группу и используйте /monopoly"
-            )
-        
-        dispatcher.add_handler(CommandHandler("start", simple_start))
-        
-        # 4. Настраиваем вебхук
-        print("  4. Настраиваем вебхук...")
-        updater.start_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
-            webhook_url=WEBHOOK_URL
-        )
-        
-        print(f"  ✅ Вебхук настроен на {WEBHOOK_URL}")
-        
-        # 5. Логируем
-        add_web_log("🤖 Простой бот создан и готов к работе", "INFO")
-        print("  ✅ Лог добавлен")
-        
-    except Exception as e:
-        print(f"❌ ФАТАЛЬНАЯ ошибка: {e}")
-        import traceback
-        traceback.print_exc()
-        bot = None
-        add_web_log(f"❌ Фатальная ошибка: {e}", "ERROR")
-else:
-    print("⚠️  Токен не установлен")
-    bot = None
-
-print(f"📊 Итог: bot = {bot}")
+# Инициализация будет позже, после создания Flask приложения
+print("🤖 Инициализация отложена до создания Flask приложения...")
+add_web_log("🔄 Ожидание инициализации бота", "INFO")
 print("=" * 60)
-print("✅ Инициализация завершена")
+print("✅ Базовая инициализация завершена")
 print("=" * 60)
 # ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 from flask import Flask, request, render_template_string
@@ -189,6 +131,172 @@ def add_web_log(message: str, level: str = "INFO"):
     web_logs.append(log_entry)
     if len(web_logs) > MAX_WEB_LOGS:
         web_logs.pop(0)
+
+# ========== ИНИЦИАЛИЗАЦИЯ PYTHON-TELEGRAM-BOT ==========
+print("\n🤖 ИНИЦИАЛИЗАЦИЯ PYTHON-TELEGRAM-BOT APPLICATION...")
+print("=" * 50)
+
+ptb_application = None  # Глобальная переменная для PTB
+
+if TOKEN:
+    try:
+        print("1. Импортируем модули python-telegram-bot...")
+        from telegram import Update
+        from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+        print("   ✅ Модули импортированы")
+        
+        print("2. Создаем Application...")
+        ptb_application = Application.builder().token(TOKEN).build()
+        print(f"   ✅ Application создан: {ptb_application}")
+        
+        print("3. Регистрируем базовые обработчики...")
+        
+        async def private_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Обработчик /start в личных сообщениях"""
+            user = update.effective_user
+            add_web_log(f"Команда /start от @{user.username or user.first_name}", "INFO")
+            
+            await update.message.reply_text(
+                f"""🎩 *ДОБРО ПОЖАЛОВАТЬ В МОНОПОЛИЮ ПРЕМИУМ!*
+
+{EMOJI['player']} *{user.first_name}*, этот бот предназначен для игры в группах!
+
+⚡ *Как начать:*
+1. Добавьте меня в группу
+2. Напишите в группе /monopoly
+3. Пригласите друзей присоединиться
+4. Начните игру!
+
+🏆 *Особенности:*
+• До 6 реальных игроков
+• Торговля между игроками
+• Аукционы
+• Дома и отели
+• Карточки шанса
+
+🎮 *Команды:*
+/start - эта информация
+/help - справка по командам
+/monopoly - начать игру в группе
+
+*Удачи в игре!* 🎲""",
+                parse_mode='Markdown'
+            )
+        
+        async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Обработчик /help"""
+            add_web_log("Команда /help выполнена", "INFO")
+            
+            await update.message.reply_text(
+                f"""🆘 *ПОМОЩЬ ПО КОМАНДАМ*
+
+🎮 *Основные команды:*
+/start - информация о боте
+/monopoly - начать новую игру (только в группах)
+/help - эта справка
+
+💰 *Экономика игры:*
+• Стартовый капитал: ${START_MONEY}
+• Проход старта: $200
+• Тюремный штраф: $50 
+
+🏠 *Стоимость строительства:*
+• Дом: $50
+• Отель: $200
+
+*Для начала игры добавьте бота в группу и напишите /monopoly*""",
+                parse_mode='Markdown'
+            )
+        
+        # Добавляем обработчики
+        ptb_application.add_handler(CommandHandler("start", private_start))
+        ptb_application.add_handler(CommandHandler("help", help_command))
+        
+        print("   ✅ Обработчики зарегистрированы")
+        
+        print("4. Инициализируем Application...")
+        # Инициализация будет в отдельной функции
+        print("   ✅ Application готов к работе")
+        
+        add_web_log("🤖 PTB Application успешно создан", "INFO")
+        
+    except Exception as e:
+        print(f"❌ ФАТАЛЬНАЯ ошибка инициализации PTB: {e}")
+        import traceback
+        traceback.print_exc()
+        ptb_application = None
+        add_web_log(f"❌ Фатальная ошибка PTB: {e}", "ERROR")
+else:
+    print("⚠️  Токен не установлен, PTB Application не создан")
+    ptb_application = None
+
+print(f"📊 Итог: ptb_application = {ptb_application}")
+print("=" * 50)
+print("✅ PTB инициализация завершена")
+print("=" * 50)
+
+# ========== ФУНКЦИЯ ДЛЯ УСТАНОВКИ WEBHOOK ==========
+def setup_webhook():
+    """Устанавливает вебхук для PTB Application"""
+    if ptb_application is None:
+        print("⚠️ Не могу установить вебхук: PTB Application не создан")
+        return False
+    
+    try:
+        print(f"🌐 Настраиваю вебхук на: {WEBHOOK_URL}")
+        
+        # Используем asyncio для асинхронной установки вебхука
+        import asyncio
+        
+        async def set_webhook_async():
+            webhook_set = await ptb_application.bot.set_webhook(url=WEBHOOK_URL)
+            return webhook_set
+        
+        # Запускаем асинхронно
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        success = loop.run_until_complete(set_webhook_async())
+        
+        if success:
+            print(f"✅ Вебхук успешно установлен: {WEBHOOK_URL}")
+            add_web_log(f"🌐 Вебхук установлен: {WEBHOOK_URL}", "INFO")
+            return True
+        else:
+            print(f"❌ Не удалось установить вебхук")
+            add_web_log(f"❌ Ошибка установки вебхука", "ERROR")
+            return False
+        
+    except Exception as e:
+        print(f"❌ Ошибка установки вебхука: {e}")
+        add_web_log(f"❌ Ошибка установки вебхука: {e}", "ERROR")
+        return False
+
+# ========== ФУНКЦИЯ ДЛЯ ИНИЦИАЛИЗАЦИИ БОТА ==========
+def init_bot_ptb():
+    """Инициализирует PTB бота и устанавливает вебхук"""
+    global ptb_application
+    
+    if ptb_application is None:
+        print("❌ PTB Application не создан")
+        return False
+    
+    try:
+        print("🤖 Запускаю инициализацию PTB бота...")
+        
+        # Устанавливаем вебхук
+        if setup_webhook():
+            print("✅ Вебхук установлен, бот готов к работе")
+            add_web_log("🤖 Бот полностью инициализирован", "INFO")
+            return True
+        else:
+            print("❌ Не удалось установить вебхук")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Ошибка инициализации бота: {e}")
+        add_web_log(f"❌ Ошибка инициализации бота: {e}", "ERROR")
+        return False
+        
 # --- FLASK МАРШРУТЫ ---
 @flask_app.route('/ping')
 def ping():
@@ -791,38 +899,43 @@ def clear_logs():
 
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
 def telegram_webhook():
-    """Упрощенный обработчик для простого бота"""
+    """Синхронный обработчик вебхука для PTB"""
     try:
         add_web_log("📩 Вебхук получен", "INFO")
         
-        if bot is None:
-            add_web_log("⚠️ Бот не создан", "WARNING")
+        if ptb_application is None:
+            add_web_log("⚠️ PTB Application не создан", "WARNING")
             return "ok", 200
             
         # Получаем данные
         data = request.get_json()
         if not data:
             return "ok", 200
-            
-        # Обрабатываем команду /start
+        
+        # Создаем Update объект
+        update = Update.de_json(data, ptb_application.bot)
+        
+        # Используем asyncio для обработки update
+        import asyncio
+        
+        async def process_update_async():
+            await ptb_application.process_update(update)
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(process_update_async())
+        
+        # Логируем
+        update_id = data.get('update_id', 'unknown')
         if 'message' in data and 'text' in data['message']:
-            text = data['message']['text']
-            chat_id = data['message']['chat']['id']
-            user = data['message']['from']
-            
-            if text == '/start':
-                bot.send_message(
-                    chat_id=chat_id,
-                    text="🎩 Добро пожаловать в Монополию!\n\n"
-                         "Это демо-версия бота.\n"
-                         "Полная версия в разработке."
-                )
-                add_web_log(f"👤 Обработан /start от @{user.get('username', user.get('first_name', 'Unknown'))}", "INFO")
+            text = data['message']['text'][:50]
+            add_web_log(f"📩 Сообщение: {text}", "INFO")
         
         return "ok", 200
         
     except Exception as e:
-        add_web_log(f"❌ Ошибка в вебхуке: {e}", "ERROR")
+        error_msg = f"❌ Ошибка в вебхуке: {e}"
+        add_web_log(error_msg, "ERROR")
         return "ok", 200
         
 def init_bot_sync():
@@ -2644,12 +2757,43 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===================== ОСНОВНАЯ ФУНКЦИЯ =====================
 def main():
     """Запуск для локальной разработки"""
-    print("⚠️  Режим локальной разработки")
-    print("ℹ️  На Render используется gunicorn bot:flask_app")
+    print("="*60)
+    print("🚀 ЗАПУСК МОНОПОЛИЯ ПРЕМИУМ БОТА")
+    print("="*60)
     
-    # ТОЛЬКО запуск Flask
+    print(f"📋 Токен: {'✅ Установлен' if TOKEN else '❌ Отсутствует'}")
+    print(f"🌐 Домен: {RENDER_DOMAIN}")
+    print(f"🔄 Вебхук: {WEBHOOK_URL}")
+    print(f"🔧 Порт: {PORT}")
+    
+    # Проверяем PTB Application
+    if ptb_application is None:
+        print("❌ PTB Application не создан!")
+        print("⚠️  Проверьте логи инициализации выше")
+    else:
+        print(f"🤖 PTB Application: ✅ Создан")
+        
+        # Инициализируем бота и устанавливаем вебхук
+        print("🔧 Устанавливаю вебхук...")
+        if init_bot_ptb():
+            print("✅ Вебхук успешно установлен!")
+            print("🤖 Бот готов к работе")
+            add_web_log("🚀 Бот запущен и готов к работе", "INFO")
+        else:
+            print("❌ Не удалось установить вебхук")
+            print("⚠️  Бот будет работать без вебхука")
+    
+    print("="*60)
+    print("🌐 Запускаю Flask сервер...")
+    print("="*60)
+    
+    # ТОЛЬКО запуск Flask (для Render используется gunicorn bot:flask_app)
     flask_app.run(
         host='0.0.0.0',
         port=PORT,
         debug=False
     )
+
+# Запуск при прямом выполнении файла
+if __name__ == "__main__":
+    main()
