@@ -52,77 +52,59 @@ def add_web_log(message: str, level: str = "INFO"):
     # Также печатаем в консоль для отладки
     print(f"[WEB_LOG] {timestamp} {level}: {message}")
 
-# ========== ПРИНУДИТЕЛЬНАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
+# ========== ПРОСТЕЙШАЯ ИНИЦИАЛИЗАЦИЯ БОТА (БЕЗ ОШИБОК) ==========
 print("=" * 60)
 print("🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot")
 print("=" * 60)
 print(f"📅 Время запуска: {datetime.now()}")
 print(f"📋 Токен установлен: {'✅ Да' if TOKEN else '❌ Нет'}")
 
-application = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ БОТА
+application = None  # ← ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ
 
 if TOKEN:
     try:
-        print("🤖 Инициализация бота...")
+        print("🤖 ПРОСТЕЙШАЯ инициализация бота...")
         
-        # Импортируем здесь, чтобы избежать циклических импортов
-        from telegram.ext import Application, CommandHandler
-        import asyncio
+        # Импортируем МИНИМУМ библиотек
+        from telegram.ext import Application
         
-        # 1. Создаем Application (ВЕБХУК РЕЖИМ)
-        print("  1. Создаем Application для вебхука...")
+        # 1. ПРОСТО создаем Application
+        print("  1. Создаем Application (без инициализации)...")
         application = Application.builder().token(TOKEN).build()
-        print("  ✅ Application создан")
+        print(f"  ✅ Application создан: {application}")
         
-        # 2. Создаем обертки для обработчиков
-        async def start_wrapper(update, context):
-            from bot import private_start
-            return await private_start(update, context)
+        # 2. НЕ добавляем обработчики сейчас - добавятся позже
+        print("  2. Обработчики будут добавлены позже")
         
-        async def help_wrapper(update, context):
-            from bot import help_command
-            return await help_command(update, context)
+        # 3. НЕ вызываем initialize() - это для polling, не для webhook!
+        print("  3. Бот готов для вебхука")
         
-        async def monopoly_wrapper(update, context):
-            from bot import group_monopoly
-            return await group_monopoly(update, context)
-        
-        # 3. Добавляем обработчики
-        print("  2. Добавляем обработчики...")
-        application.add_handler(CommandHandler("start", start_wrapper))
-        application.add_handler(CommandHandler("help", help_wrapper))
-        application.add_handler(CommandHandler("monopoly", monopoly_wrapper))
-        print("  ✅ Обработчики добавлены")
-        
-        # 4. НЕ ИНИЦИАЛИЗИРУЕМ для вебхука! Просто создаем объект
-        print("  3. Бот готов для вебхука (без инициализации)")
-        
-        # 5. Проверяем состояние
+        # 4. Проверяем
         if application:
             print(f"  ✅ Бот готов к работе")
-            print(f"  ℹ️  Application: {application}")
         else:
             print("  ⚠️  Бот не создан")
         
-        # 6. Добавляем лог
-        add_web_log("🤖 Бот создан для вебхука", "INFO")
+        # 5. Логируем
+        add_web_log("🤖 Бот создан (простая инициализация)", "INFO")
         print("  ✅ Лог добавлен")
         
     except Exception as e:
-        print(f"❌ Ошибка создания бота: {e}")
+        print(f"❌ КРИТИЧЕСКАЯ ошибка: {e}")
         import traceback
         traceback.print_exc()
         application = None
-        add_web_log(f"❌ Ошибка создания бота: {e}", "ERROR")
+        add_web_log(f"❌ Критическая ошибка: {e}", "ERROR")
 else:
     print("⚠️  Токен не установлен - бот не создан")
     application = None
-    add_web_log("⚠️  Токен не установлен, бот не создан", "WARNING")
 
-print(f"📊 Итог: application = {application}")
+print(f"📊 Итог: application создан = {'Да' if application else 'Нет'}")
 print("=" * 60)
-print("✅ Создание бота завершено. Запуск Flask сервера...")
+print("✅ Инициализация завершена")
 print("=" * 60)
+
+# ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 # ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 from flask import Flask, request, render_template_string
 
