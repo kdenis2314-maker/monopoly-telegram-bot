@@ -670,17 +670,76 @@ def clear_logs():
 
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
 def telegram_webhook():
-    """ПРОСТОЙ обработчик вебхука - всегда возвращает OK"""
+    """Обработчик вебхука Telegram с обработкой через application"""
     try:
-        # Просто логируем факт получения вебхука
+        # 1. Получаем данные от Telegram
         data = request.get_json(force=True, silent=True)
-        if data:
-            update_id = data.get('update_id', 'unknown')
-            add_web_log(f"📩 Вебхук получен: {update_id}", "INFO")
-    except:
-        pass
+        
+        if not data:
+            add_web_log("📩 Получен пустой вебхук", "INFO")
+            return "ok", 200
+        
+        update_id = data.get('update_id', 'unknown')
+        add_web_log(f"📩 Вебхук получен: ID {update_id}", "INFO")
+        
+        # 2. Логируем информацию о сообщении (для отладки)
+        if 'message' in data:
+            message = data['message']
+            text = message.get('text', '')[:50]  # Первые 50 символов
+            user = message.get('from', {})
+            username = user.get('username', user.get('first_name', 'Unknown'))
+            chat_id = message.get('chat', {}).get('id', 'unknown')
+            chat_type = message.get('chat', {}).get('type', 'unknown')
+            
+            add_web_log(f"  👤 @{username} (чат {chat_type}): {text}", "INFO")
+            
+            # Логируем команды
+            if text and text.startswith('/'):
+                add_web_log(f"  🎯 Команда: {text.split()[0]}", "INFO")
+        
+        elif 'callback_query' in data:
+            callback = data['callback_query']
+            query_data = callback.get('data', '')[:30]
+            user = callback.get('from', {})
+            username = user.get('username', user.get('first_name', 'Unknown'))
+            add_web_log(f"  🔘 Callback от @{username}: {query_data}", "INFO")
+        
+        # 3. Проверяем инициализацию бота
+        global application
+        
+        if application is None:
+            add_web_log("⚠️ Бот не инициализирован, пропускаем обработку", "WARNING")
+            return "ok", 200
+        
+        if application.bot is None:
+            add_web_log("⚠️ application.bot is None, пропускаем обработку", "WARNING")
+            return "ok", 200
+        
+        # 4. Обрабатываем обновление через application
+        try:
+            from telegram import Update
+            update = Update.de_json(data, application.bot)
+            
+            # Создаем event loop для асинхронной обработки
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Обрабатываем обновление
+            loop.run_until_complete(application.process_update(update))
+            
+            add_web_log(f"✅ Обновление {update_id} обработано", "INFO")
+            
+        except Exception as process_error:
+            add_web_log(f"⚠️ Ошибка обработки обновления: {str(process_error)[:100]}", "WARNING")
+            # Продолжаем - главное вернуть OK Telegram
+        
+    except Exception as e:
+        error_msg = f"❌ Ошибка в вебхуке: {str(e)[:100]}"
+        add_web_log(error_msg, "ERROR")
+        print(f"Webhook error: {e}")
+        # Не выводим traceback в продакшене чтобы не засорять логи
     
-    # ВСЕГДА возвращаем OK
+    # 5. ВСЕГДА возвращаем OK, чтобы Telegram не отключал вебхук
     return "ok", 200
         
 def init_bot_sync():
