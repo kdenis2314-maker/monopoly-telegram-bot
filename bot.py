@@ -54,7 +54,7 @@ def add_web_log(message: str, level: str = "INFO"):
 
 # ========== ПРИНУДИТЕЛЬНАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
 print("=" * 60)
-print("🎩 МОНОПОЛИЯ ПРЕМИУМ - ПРИНУДИТЕЛЬНАЯ ИНИЦИАЛИЗАЦИЯ")
+print("🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot")
 print("=" * 60)
 print(f"📅 Время запуска: {datetime.now()}")
 print(f"📋 Токен установлен: {'✅ Да' if TOKEN else '❌ Нет'}")
@@ -69,12 +69,12 @@ if TOKEN:
         from telegram.ext import Application, CommandHandler
         import asyncio
         
-        # 1. Создаем Application
-        print("  1. Создаем Application...")
+        # 1. Создаем Application (ВЕБХУК РЕЖИМ)
+        print("  1. Создаем Application для вебхука...")
         application = Application.builder().token(TOKEN).build()
         print("  ✅ Application создан")
         
-        # 2. Создаем обертки для обработчиков (пустые)
+        # 2. Создаем обертки для обработчиков
         async def start_wrapper(update, context):
             from bot import private_start
             return await private_start(update, context)
@@ -94,41 +94,35 @@ if TOKEN:
         application.add_handler(CommandHandler("monopoly", monopoly_wrapper))
         print("  ✅ Обработчики добавлены")
         
-        # 4. Инициализируем бота
-        print("  3. Инициализируем...")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        # ТОЛЬКО инициализация (initialize), НЕ запуск (start)
-        loop.run_until_complete(application.initialize())
-        print("  ✅ Бот инициализирован")
+        # 4. НЕ ИНИЦИАЛИЗИРУЕМ для вебхука! Просто создаем объект
+        print("  3. Бот готов для вебхука (без инициализации)")
         
         # 5. Проверяем состояние
-        if application and hasattr(application, 'bot') and application.bot:
+        if application:
             print(f"  ✅ Бот готов к работе")
+            print(f"  ℹ️  Application: {application}")
         else:
-            print("  ⚠️  Бот создан, но application.bot = None")
+            print("  ⚠️  Бот не создан")
         
         # 6. Добавляем лог
-        add_web_log("🤖 Бот инициализирован при запуске", "INFO")
-        print("  ✅ Лог добавлен в web_logs")
+        add_web_log("🤖 Бот создан для вебхука", "INFO")
+        print("  ✅ Лог добавлен")
         
     except Exception as e:
-        print(f"❌ Ошибка инициализации бота: {e}")
+        print(f"❌ Ошибка создания бота: {e}")
         import traceback
         traceback.print_exc()
         application = None
-        add_web_log(f"❌ Ошибка инициализации бота: {e}", "ERROR")
+        add_web_log(f"❌ Ошибка создания бота: {e}", "ERROR")
 else:
-    print("⚠️  Токен не установлен - бот не инициализирован")
+    print("⚠️  Токен не установлен - бот не создан")
     application = None
-    add_web_log("⚠️  Токен не установлен, бот не инициализирован", "WARNING")
+    add_web_log("⚠️  Токен не установлен, бот не создан", "WARNING")
 
 print(f"📊 Итог: application = {application}")
 print("=" * 60)
-print("✅ Инициализация завершена. Запуск Flask сервера...")
+print("✅ Создание бота завершено. Запуск Flask сервера...")
 print("=" * 60)
-
 # ========== FLASK ДЛЯ WEBHOOK И АКТИВНОСТИ ==========
 from flask import Flask, request, render_template_string
 
