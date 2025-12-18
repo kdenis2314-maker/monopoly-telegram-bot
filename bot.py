@@ -1716,85 +1716,46 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 )
 def main():
     """
-    Инициализирует Application, регистрирует хэндлеры и устанавливает Webhook.
-    Не запускает Polling, так как Flask/Gunicorn берет на себя роль сервера.
+    Инициализирует Application, регистрирует хендлеры и ставит Webhook.
     """
     global application
     
     if not TOKEN:
-        logger.error("❌ BOT_TOKEN не установлен. Инициализация Webhook невозможна.")
+        logger.error("❌ BOT_TOKEN не установлен!")
         return
 
+    # 1. Создаем приложение
     application = Application.builder().token(TOKEN).build()
-
-import asyncio
-asyncio.get_event_loop().run_until_complete(application.initialize())
-
-# Дальше идут твои команды...
-
     
-    # Добавляем обработчики команд
+    # 2. Инициализируем бота для работы в асинхронном режиме
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(application.initialize())
+    
+    # 3. Регистрация команд
     application.add_handler(CommandHandler("start", private_start))
     application.add_handler(CommandHandler("monopoly", group_monopoly))
-    application.add_handler(CommandHandler("help", help_command))
     
-    # Обработчики callback-запросов (в порядке приоритета)
-    application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
+    # Регистрация обработчиков кнопок (убедись, что эти функции есть в коде)
+        application.add_handler(CallbackQueryHandler(join_game, pattern="^join_"))
     application.add_handler(CallbackQueryHandler(start_game, pattern="^start_"))
-    application.add_handler(CallbackQueryHandler(roll_dice, pattern="^roll_"))
-    application.add_handler(CallbackQueryHandler(buy_property, pattern="^buy_"))
-    application.add_handler(CallbackQueryHandler(skip_turn, pattern="^skip_"))
-    application.add_handler(CallbackQueryHandler(end_turn, pattern="^end_"))
-    application.add_handler(CallbackQueryHandler(check_balance, pattern="^balance_"))
-    application.add_handler(CallbackQueryHandler(check_properties, pattern="^props_"))
-    application.add_handler(CallbackQueryHandler(trade_menu, pattern="^trade_menu_"))
-    application.add_handler(CallbackQueryHandler(build_menu, pattern="^build_"))
-    application.add_handler(CallbackQueryHandler(build_house, pattern="^build_house_"))
-    application.add_handler(CallbackQueryHandler(build_hotel, pattern="^build_hotel_"))
-    application.add_handler(CallbackQueryHandler(auction_property, pattern="^auction_"))
-    application.add_handler(CallbackQueryHandler(auction_bid, pattern="^auction_bid_"))
-    application.add_handler(CallbackQueryHandler(end_auction, pattern="^auction_end_"))
-    application.add_handler(CallbackQueryHandler(cancel_game, pattern="^cancel_"))
-    application.add_handler(CallbackQueryHandler(how_to_play, pattern="^how_to_play"))
-    
-    # Обработчик для кнопок "назад" в меню
-    application.add_handler(CallbackQueryHandler(
-        lambda update, ctx: update.callback_query.edit_message_reply_markup(
-            reply_markup=get_game_keyboard(int(update.callback_query.data.split('_')[-1]))
-        ),
-        pattern="^(trade_back_|build_back_)"
-    ))
-    
-    # Обработчик неизвестных команд
-    application.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|monopoly|help)$"), unknown_command))
-    
-    # Обработчик ошибок
-    application.add_error_handler(error_handler)
-    
-    # --- НАСТРОЙКА WEBHOOK ---
-    try:
-        # Устанавливаем Webhook на сервере Telegram
-        application.bot.set_webhook(url=WEBHOOK_URL)
-        logger.info(f"✅ Webhook успешно установлен на URL: {WEBHOOK_URL}")
-    except Exception as e:
-        logger.error(f"❌ Ошибка при установке Webhook: {e}")
 
-    logger.info("✅ Бот Монополия настроен для Render с Webhook.")
-    logger.info(f"📊 Всего игр в памяти: {len(games_storage)}")
     
-    print("\n" + "="*60)
-    print("🎩 МОНОПОЛИЯ ТЕЛЕГРАМ БОТ (WEBHOOK) ГОТОВ К ЗАПУСКУ GUNICORN!")
-    print("="*60)
-    print(f"🕒 Время инициализации: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"🌐 Ожидаемый Webhook URL: {WEBHOOK_URL}")
-    print(f"🔑 Токен: {'установлен' if TOKEN else 'НЕ УСТАНОВЛЕН!'}")
-    print("="*60 + "\n")
-    
+    # 4. Установка Webhook (ОБЯЗАТЕЛЬНО)
+    try:
+        loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
+        logger.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка вебхука: {e}")
+
+# ========== ЗАПУСК ==========
+# Эти строки должны быть БЕЗ ПРОБЕЛОВ в начале
 main()
 
 if __name__ == '__main__':
+    logger.info(f"🚀 Запуск сервера на порту {PORT}")
     flask_app.run(host='0.0.0.0', port=PORT)
-    
+
         
 
                        
