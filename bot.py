@@ -16,8 +16,7 @@ from queue import Queue
 import html
 
 # ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
-application = None  # ← ВАЖНО! Должно быть здесь!
-TOKEN = os.environ.get('BOT_TOKEN') 
+TOKEN = os.environ.get('BOT_TOKEN')
 if not TOKEN:
     print("⚠️ ВНИМАНИЕ: Переменная окружения BOT_TOKEN не установлена!")
     print("ℹ️ Добавьте переменную BOT_TOKEN в настройках Render")
@@ -25,7 +24,7 @@ if not TOKEN:
 
 RENDER_DOMAIN = os.environ.get('RENDER_DOMAIN', 'https://monopoly-telegram-bot-7.onrender.com')
 WEBHOOK_PATH = '/webhook'
-WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"
+WEBHOOK_URL = f"{RENDER_DOMAIN}{WEBHOOK_PATH}"  # ← ИСПРАВЬТЕ ЕСЛИ У ВАС ( )
 PORT = int(os.environ.get('PORT', 10000))
 
 # Настройка логирования для Render
@@ -50,10 +49,12 @@ def add_web_log(message: str, level: str = "INFO"):
     web_logs.append(log_entry)
     if len(web_logs) > MAX_WEB_LOGS:
         web_logs.pop(0)
+    # Также печатаем в консоль для отладки
+    print(f"[WEB_LOG] {timestamp} {level}: {message}")
 
-# ========== ИНИЦИАЛИЗАЦИЯ БОТА ПРИ ИМПОРТЕ ==========
+# ========== ПРИНУДИТЕЛЬНАЯ ИНИЦИАЛИЗАЦИЯ БОТА ==========
 print("=" * 60)
-print("🎩 МОНОПОЛИЯ ПРЕМИУМ - Telegram Bot")
+print("🎩 МОНОПОЛИЯ ПРЕМИУМ - ПРИНУДИТЕЛЬНАЯ ИНИЦИАЛИЗАЦИЯ")
 print("=" * 60)
 print(f"📅 Время запуска: {datetime.now()}")
 print(f"📋 Токен установлен: {'✅ Да' if TOKEN else '❌ Нет'}")
@@ -68,13 +69,13 @@ if TOKEN:
         from telegram.ext import Application, CommandHandler
         import asyncio
         
-        # Создаем Application
+        # 1. Создаем Application
+        print("  1. Создаем Application...")
         application = Application.builder().token(TOKEN).build()
-        print("✅ Application создан")
+        print("  ✅ Application создан")
         
-        # Создаем обертки для обработчиков
+        # 2. Создаем обертки для обработчиков (пустые)
         async def start_wrapper(update, context):
-            # Импортируем функции здесь
             from bot import private_start
             return await private_start(update, context)
         
@@ -86,28 +87,31 @@ if TOKEN:
             from bot import group_monopoly
             return await group_monopoly(update, context)
         
-        # Добавляем обработчики
+        # 3. Добавляем обработчики
+        print("  2. Добавляем обработчики...")
         application.add_handler(CommandHandler("start", start_wrapper))
         application.add_handler(CommandHandler("help", help_wrapper))
         application.add_handler(CommandHandler("monopoly", monopoly_wrapper))
-        print("✅ Обработчики добавлены")
+        print("  ✅ Обработчики добавлены")
         
-        # Инициализируем бота
+        # 4. Инициализируем бота
+        print("  3. Инициализируем...")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         # ТОЛЬКО инициализация (initialize), НЕ запуск (start)
         loop.run_until_complete(application.initialize())
-        print("✅ Бот инициализирован")
+        print("  ✅ Бот инициализирован")
         
-        # Проверяем состояние
+        # 5. Проверяем состояние
         if application and hasattr(application, 'bot') and application.bot:
-            print(f"✅ Бот готов к работе")
+            print(f"  ✅ Бот готов к работе")
         else:
-            print("⚠️  Бот создан, но application.bot = None")
+            print("  ⚠️  Бот создан, но application.bot = None")
         
-        # Добавляем лог
+        # 6. Добавляем лог
         add_web_log("🤖 Бот инициализирован при запуске", "INFO")
+        print("  ✅ Лог добавлен в web_logs")
         
     except Exception as e:
         print(f"❌ Ошибка инициализации бота: {e}")
@@ -120,6 +124,7 @@ else:
     application = None
     add_web_log("⚠️  Токен не установлен, бот не инициализирован", "WARNING")
 
+print(f"📊 Итог: application = {application}")
 print("=" * 60)
 print("✅ Инициализация завершена. Запуск Flask сервера...")
 print("=" * 60)
