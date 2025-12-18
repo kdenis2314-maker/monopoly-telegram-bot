@@ -2,3 +2,4 @@ aiogram==3.10.0
 flask
 aiohttp
 gunicorn
+python-dotenv
