@@ -25,181 +25,27 @@ if not TOKEN:
     raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
 
 RENDER_DOMAIN = 'https://monopoly-telegram-bot.onrender.com'
-WEBHOOK_URL_BASE = os.environ.get('RENDER_EXTERNAL_URL', RENDER_DOMAIN)
-
-WEBHOOK_PATH = f"/webhook/{TOKEN}"
-
-WEBHOOK_URL = f"{WEBHOOK_URL_BASE}{WEBHOOK_PATH}" 
-
-PORT = int(os.environ.get('PORT', 10000))
-
-# ========================================================
-
-
-# Глобальная переменная для объекта Application
-application = None
-
-# ========== FLASK МАРШРУТЫ ==========
-@flask_app.route('/')
-def home():
-    """Основная страница для проверки работы"""
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Проверка статуса Application (если она была инициализирована)
-    app_status = "✅ Active" if application else "❌ Initializing..."
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>🎩 Monopoly Telegram Bot</title>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body {{ 
-                font-family: 'Arial', sans-serif; 
-                text-align: center; 
-                padding: 20px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                color: white;
-            }}
-            .container {{
-                background: rgba(255, 255, 255, 0.95);
-                padding: 40px;
-                border-radius: 20px;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                max-width: 800px;
-                margin: 0 auto;
-                color: #333;
-            }}
-            h1 {{ 
-                color: #2c3e50; 
-                font-size: 3em;
-                margin-bottom: 10px;
-            }}
-            .status {{
-                color: #27ae60; 
-                font-weight: bold;
-                font-size: 1.5em;
-                margin: 20px 0;
-            }}
-            .info {{
-                background: #f8f9fa; 
-                padding: 25px; 
-                border-radius: 15px; 
-                margin: 25px auto; 
-                max-width: 700px;
-                text-align: left;
-                border-left: 5px solid #667eea;
-            }}
-            .emoji {{ font-size: 1.5em; }}
-            .stats {{ 
-                display: flex;
-                justify-content: space-around;
-                flex-wrap: wrap;
-                margin: 30px 0;
-            }}
-            .stat-item {{
-                background: white;
-                padding: 20px;
-                border-radius: 10px;
-                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-                margin: 10px;
-                min-width: 200px;
-            }}
-            code {{
-                background: #2c3e50;
-                color: white;
-                padding: 5px 10px;
-                border-radius: 5px;
-                font-family: monospace;
-            }}
-            footer {{
-                margin-top: 30px;
-                color: #7f8c8d;
-                font-size: 0.9em;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1><span class="emoji">🎩</span> Монополия Telegram Bot</h1>
-            
-            <div class="status">Статус бота: {app_status}</div>
-            
-            <div class="stats">
-                <div class="stat-item">
-                    <div class="emoji">🕒</div>
-                    <h3>Время сервера</h3>
-                    <p>{current_time}</p>
-                </div>
-                <div class="stat-item">
-                    <div class="emoji">🚀</div>
-                    <h3>Режим</h3>
-                    <p>Webhook (Render)</p>
-                </div>
-                <div class="stat-item">
-                    <div class="emoji">📊</div>
-                    <h3>Игр в памяти</h3>
-                    <p>{len(games_storage) if 'games_storage' in globals() else 0}</p>
-                </div>
-            </div>
-            
-            <div class="info">
-                <h2>🔧 Техническая информация:</h2>
-                <p>Этот бот работает на Render.com в режиме Webhook.</p>
-                <p>Endpoint для Telegram: <code>{WEBHOOK_PATH}</code></p>
-                <p>Внешний URL: <code>{WEBHOOK_URL_BASE}</code></p>
-                <p>Порт: <code>{PORT}</code></p>
-            </div>
-            
-            <footer>
-                <p>Monopoly Bot v2.0 | Работает на Render + Flask | IP: {request.remote_addr if request else 'N/A'}</p>
-            </footer>
-        </div>
-    </body>
-    </html>
-    """
-
-@flask_app.route('/health')
-def health():
-    """Маршрут для health checks"""
-    return {
-        "status": "healthy",
-        "service": "monopoly-telegram-bot",
-        "timestamp": datetime.now().isoformat(),
-        "version": "2.0"
-    }, 200
-
+WEBH# ========== FLASK МАРШРУТЫ ==========
 @flask_app.route('/ping')
 def ping():
-    """Простой пинг для мониторинга"""
     return "pong", 200
 
 @flask_app.route(WEBHOOK_PATH, methods=['POST'])
 async def telegram_webhook():
-    """Обрабатывает входящие обновления от Telegram."""
-    
-    # Импорты внутри функции для избежания циклической зависимости
     from telegram import Update
-    
     if not application:
         return "Bot application not initialized", 503
 
-    # Получаем JSON-обновление из POST-запроса
-    update_json = request.get_json(force=True)
-    
-        # Создаем объект Update из JSON
-    update = Update.de_json(update_json, application.bot)
-    
-    # Асинхронно обрабатываем обновление (ТЕПЕРЬ ПРАВИЛЬНО)
-    await application.update_queue.put(update) 
-        
-    return "ok" 
+    try:
+        update_json = request.get_json(force=True)
+        # Создаем объект Update и прокидываем его в очередь бота
+        update = Update.de_json(update_json, application.bot)
+        await application.update_queue.put(update) 
+        return "ok", 200
+    except Exception as e:
+        logger.error(f"Ошибка вебхука: {e}")
+        return "error", 500
 
-        
-    return "ok" # Telegram ожидает ответ "ok" (HTTP 200)
 
 # ========== ОСНОВНОЙ КОД БОТА ==========
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
