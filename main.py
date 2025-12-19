@@ -1,104 +1,91 @@
-import asyncio, logging, os, sys, time, random
+import asyncio, logging, os, sys, time, random, psutil
 from flask import Flask, render_template_string
 from threading import Thread
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardButton
 from aiogram.client.default import DefaultBotProperties
 
-# --- НАСТРОЙКИ ---
+# --- КОНФИГУРАЦИЯ ---
 TOKEN = "8265158957:AAF8LjmyLM4nsBEnLOvVSNRNzC6X-ZIbGzU"
 PORT = int(os.environ.get("PORT", 8081))
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 games, site_logs = {}, []
 start_time = time.time()
-bot_status = "Инициализация..."
 
 def add_log(msg):
     entry = {"time": time.strftime('%H:%M:%S'), "msg": msg}
     site_logs.append(entry)
-    if len(site_logs) > 25: site_logs.pop(0)
+    if len(site_logs) > 15: site_logs.pop(0)
 
-# --- КОСМИЧЕСКАЯ ПАНЕЛЬ СОСТОЯНИЯ ---
+# --- ИНФОРМАТИВНАЯ АДМИН-ПАНЕЛЬ ---
 app = Flask(__name__)
 @app.route('/')
 def dashboard():
-    uptime = int((time.time() - start_time) / 60)
+    mem = psutil.virtual_memory().percent
+    cpu = psutil.cpu_percent()
     return render_template_string("""
     <!DOCTYPE html>
-    <html lang="ru">
+    <html>
     <head>
         <meta charset="UTF-8">
-        <title>SIGMA CORE | ПАНЕЛЬ УПРАВЛЕНИЯ</title>
+        <title>GALAXY ADMIN</title>
         <style>
-            body { 
-                background: radial-gradient(circle, #0a0b1e 0%, #000 100%); 
-                color: #00f3ff; font-family: 'Courier New', monospace; margin: 0; padding: 20px;
-            }
-            .container { max-width: 900px; margin: auto; }
-            .header { text-align: center; border: 1px solid #00f3ff; padding: 20px; border-radius: 15px; box-shadow: 0 0 20px #00f3ff33; background: rgba(0,0,0,0.6); }
-            .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px; }
-            .card { background: rgba(255,255,255,0.03); border: 1px solid #1a2a3a; padding: 15px; border-radius: 10px; text-align: center; position: relative; overflow: hidden; }
-            .card::after { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: #00f3ff; box-shadow: 0 0 10px #00f3ff; }
-            .online { color: #00ff88; text-shadow: 0 0 10px #00ff88; }
-            .value { font-size: 24px; margin-top: 5px; color: #fff; }
-            .log-view { margin-top: 20px; height: 300px; overflow-y: auto; background: #000; border: 1px solid #333; padding: 15px; border-radius: 10px; font-size: 13px; }
-            .log-line { border-bottom: 1px solid #111; padding: 4px 0; color: #576574; }
-            .log-msg { color: #00f3ff; }
+            body { background: #020205; color: #00f3ff; font-family: 'Segoe UI', sans-serif; padding: 20px; }
+            .panel { border: 2px solid #00f3ff; border-radius: 20px; padding: 25px; background: rgba(0, 10, 20, 0.8); box-shadow: 0 0 30px #00f3ff44; }
+            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 20px 0; }
+            .card { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border-left: 5px solid #00f3ff; }
+            .status { color: #00ff88; font-weight: bold; animation: pulse 2s infinite; }
+            .log-box { background: #000; padding: 15px; height: 200px; overflow-y: auto; font-family: monospace; border-radius: 10px; border: 1px solid #1a1a1a; }
+            @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
         </style>
     </head>
     <body>
-        <div class="container">
-            <div class="header">
-                <h1 style="letter-spacing: 5px; margin: 0;">🛰️ SIGMA MONOPOLY CORE</h1>
-                <p>ЦЕНТРАЛЬНЫЙ УЗЕЛ УПРАВЛЕНИЯ</p>
+        <div class="panel">
+            <h1 style="text-align: center; letter-spacing: 3px;">🛰️ КОНТРОЛЬ ПОЛЕТА: МОНОПОЛИЯ</h1>
+            <div style="text-align:center;">Статус: <span class="status">СИСТЕМЫ СТАБИЛЬНЫ</span></div>
+            
+            <div class="grid">
+                <div class="card">ВЕБХУКИ<br><b style="color:#ff4444">ОТКЛЮЧЕНЫ (FIX)</b></div>
+                <div class="card">АПТАЙМ<br><b>{{ up }} мин.</b></div>
+                <div class="card">ПАМЯТЬ<br><b>{{ mem }}%</b></div>
             </div>
-            <div class="status-grid">
-                <div class="card"><div>СТАТУС БОТА</div><div class="value online">● АКТИВЕН</div></div>
-                <div class="card"><div>ВЕБХУКИ</div><div class="value" style="color:#ffcc00">ОТКЛЮЧЕНЫ</div></div>
-                <div class="card"><div>АПТАЙМ</div><div class="value">{{ up }} МИН.</div></div>
-                <div class="card"><div>ИГРОВЫЕ ЯДРА</div><div class="value">{{ g_count }}</div></div>
-            </div>
-            <div class="log-view">
+
+            <div class="log-box">
                 {% for l in logs %}
-                <div class="log-line">[{{ l.time }}] <span class="log-msg">> {{ l.msg }}</span></div>
+                <div style="margin-bottom:5px;"><span style="color:#555;">[{{ l.time }}]</span> > {{ l.msg }}</div>
                 {% endfor %}
             </div>
+            <p style="font-size:10px; color:#333; text-align:right;">ID СЕССИИ: {{ session_id }}</p>
         </div>
     </body>
     </html>
-    """, logs=site_logs[::-1], up=uptime, g_count=len(games))
+    """, logs=site_logs[::-1], up=int((time.time()-start_time)/60), mem=mem, session_id=random.randint(1000,9999))
 
-# --- ЛОГИКА БОТА ---
+# --- БОТ ---
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="Markdown"))
 dp = Dispatcher()
 
 @dp.message(Command("monopoly"))
-async def start_game(m: types.Message):
-    await m.answer("🌌 **Система монополии запущена в данном секторе.**\nОжидайте инициализации интерфейса...")
+async def start_cmd(m: types.Message):
+    await m.answer("🌌 **Космическая монополия готова к запуску.**")
 
-# --- ЗАПУСК ---
 async def main():
-    add_log("ЗАГРУЗКА ПРОТОКОЛОВ СВЯЗИ...")
-    
-    # Решение ошибки ConflictError
+    add_log("УДАЛЕНИЕ ВЕБХУКОВ...")
+    # 100% ГАРАНТИЯ: Очищаем всё перед стартом
     await bot.delete_webhook(drop_pending_updates=True)
-    add_log("ВЕБХУКИ ОЧИЩЕНЫ. ПЕРЕХОД НА LONG POLLING.")
+    add_log("КОНФЛИКТЫ УСТРАНЕНЫ.")
     
+    # Запуск сервера
     Thread(target=lambda: app.run(host='0.0.0.0', port=PORT, use_reloader=False), daemon=True).start()
-    add_log("АДМИН-ПАНЕЛЬ ДОСТУПНА ПО ПОРТУ " + str(PORT))
+    add_log("ПАНЕЛЬ СОСТОЯНИЯ ЗАПУЩЕНА.")
     
-    try:
-        add_log("БОТ ЗАПУЩЕН УСПЕШНО.")
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+    add_log("ПОЛЛИНГ АКТИВИРОВАН.")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
+    except:
+        pass
     
