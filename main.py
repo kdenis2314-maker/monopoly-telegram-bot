@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
+from aiogram.client.default import DefaultBotProperties
 
 # --- SETTINGS ---
 TOKEN = "8265158957:AAF8LjmyLM4nsBEnLOvVSNRNzC6X-ZIbGzU"
@@ -15,6 +16,7 @@ games = {}
 site_logs = []
 start_time = time.time()
 
+# Расширенная карта
 BOARD = [
     ("СТАРТ 🚩", 0, 0), ("Ул. Рижская 🏙", 1500, 800), ("ШАНС 🎲", 0, 0), ("Ул. Тверская 🌃", 2000, 1000),
     ("НАЛОГ 💸", 0, 1500), ("МЕТРО 🚇", 3000, 1500), ("Ул. Арбат 🏟", 2500, 1200), ("КАЗНА 💰", 0, 0),
@@ -26,159 +28,145 @@ BOARD = [
 def add_log(msg):
     entry = {"time": time.strftime('%H:%M:%S'), "msg": msg}
     site_logs.append(entry)
-    if len(site_logs) > 50: site_logs.pop(0)
 
-# --- SPACE ADMIN PANEL ---
+# --- DEEP SPACE ADMIN PANEL ---
 app = Flask(__name__)
 @app.route('/')
 def dashboard():
-    html = """
+    return render_template_string("""
     <!DOCTYPE html>
-    <html>
-    <head>
-        <title>COSMOS ADMIN OS</title>
-        <style>
-            body { 
-                background: radial-gradient(circle at center, #050510 0%, #000 100%);
-                color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                margin: 0; overflow: hidden; height: 100vh;
-            }
-            .stars { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; }
-            .container { 
-                max-width: 1000px; margin: 50px auto; 
-                background: rgba(255, 255, 255, 0.05);
-                backdrop-filter: blur(15px); border-radius: 20px;
-                border: 1px solid rgba(0, 212, 255, 0.3);
-                padding: 30px; box-shadow: 0 0 50px rgba(0, 100, 255, 0.2);
-            }
-            h1 { text-align: center; letter-spacing: 5px; color: #00d4ff; text-shadow: 0 0 15px #00d4ff; }
-            .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
-            .stat-card { 
-                background: rgba(0, 0, 0, 0.5); padding: 15px; border-radius: 10px; 
-                border-left: 4px solid #00d4ff; text-align: center;
-            }
-            .log-box { 
-                height: 300px; overflow-y: auto; background: rgba(0,0,0,0.8);
-                border-radius: 10px; padding: 15px; font-family: 'Courier New', monospace;
-                border: 1px solid #1a1a1a;
-            }
-            .log-entry { margin-bottom: 8px; border-bottom: 1px solid #111; padding-bottom: 4px; }
-            .time { color: #00d4ff; font-weight: bold; margin-right: 10px; }
-            .msg { color: #e0e0e0; }
-            @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
-            .online-indicator { color: #00ff88; animation: pulse 2s infinite; }
-        </style>
-    </head>
-    <body>
-        <div class="stars"></div>
-        <div class="container">
-            <h1>🌌 COSMOS CONTROL CENTER</h1>
-            <div class="stat-grid">
-                <div class="stat-card"><h3>UPTIME</h3><p>{{ up }} min</p></div>
-                <div class="stat-card"><h3>ACTIVE GAMES</h3><p>{{ g_count }}</p></div>
-                <div class="stat-card"><h3>STATUS</h3><p class="online-indicator">SYSTEM ACTIVE</p></div>
-            </div>
-            <div class="log-box">
-                {% for l in logs %}
-                <div class="log-entry">
-                    <span class="time">[{{ l.time }}]</span>
-                    <span class="msg">> {{ l.msg }}</span>
-                </div>
-                {% endfor %}
+    <style>
+        body { background: #020205; color: #fff; font-family: 'Orbitron', sans-serif; margin: 0; overflow: hidden; }
+        .space-bg { position: fixed; width: 100%; height: 100%; background: radial-gradient(ellipse at bottom, #1B2735 0%, #090A0F 100%); z-index: -1; }
+        .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px); border: 1px solid rgba(0, 212, 255, 0.2); border-radius: 15px; padding: 25px; margin: 20px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8); }
+        .neon-text { color: #00f3ff; text-shadow: 0 0 10px #00f3ff, 0 0 20px #00f3ff; }
+        .log-container { height: 400px; overflow-y: auto; font-family: 'Courier New'; font-size: 13px; color: #a0d2eb; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+        .card { background: rgba(0,0,0,0.4); padding: 15px; border-radius: 10px; border-top: 2px solid #00f3ff; text-align: center; }
+        @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+        .scanner { position: absolute; width: 100%; height: 2px; background: rgba(0, 243, 255, 0.2); animation: scan 4s linear infinite; }
+    </style>
+    <div class="space-bg"><div class="scanner"></div></div>
+    <div class="glass">
+        <h1 class="neon-text">🛰️ SIGMA OS: GALACTIC COMMAND</h1>
+        <div class="grid">
+            <div class="card"><h3>UPTIME</h3><p>{{ up }}m</p></div>
+            <div class="card"><h3>CORES</h3><p>{{ g_count }} ACTIVE</p></div>
+            <div class="card"><h3>ENGINE</h3><p>STABLE</p></div>
+        </div>
+        <div class="glass" style="margin: 20px 0;">
+            <div class="log-container">
+                {% for l in logs %}<div><span style="color:#576574">[{{ l.time }}]</span> >> {{ l.msg }}</div>{% endfor %}
             </div>
         </div>
-    </body>
-    </html>
-    """
-    return render_template_string(html, logs=site_logs[::-1], up=int((time.time()-start_time)/60), g_count=len(games))
+    </div>
+    """, logs=site_logs[::-1], up=int((time.time()-start_time)/60), g_count=len(games))
 
 # --- BOT LOGIC ---
-bot = Bot(token=TOKEN)
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="Markdown"))
 dp = Dispatcher()
-
-def get_game_kb(can_buy=False):
-    kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🎲 БРОСИТЬ КУБИКИ", callback_data="roll"))
-    if can_buy:
-        kb.row(InlineKeyboardButton(text="💎 КУПИТЬ ОБЪЕКТ", callback_data="buy_prop"))
-    return kb.as_markup()
 
 @dp.message(Command("monopoly"))
 async def start_game(m: types.Message):
     cid = m.chat.id
-    if cid in games: return await m.answer("⚠️ **ОШИБКА:** Игра уже запущена в этом чате.")
+    if cid in games: return await m.answer("🛸 **СИСТЕМА:** Игра уже активна в этом секторе.")
     
     games[cid] = {
         "status": "lobby",
         "players": {m.from_user.id: {"name": m.from_user.first_name, "pos": 0, "money": 20000}},
         "order": [m.from_user.id], "turn": 0, "properties": {}
     }
-    add_log(f"New game created by {m.from_user.first_name}")
     
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="ВСТУПИТЬ ✅", callback_data="join_game"))
-    kb.row(InlineKeyboardButton(text="ЗАПУСТИТЬ ТЕРМИНАЛ 🚀", callback_data="start_match"))
+    kb.row(InlineKeyboardButton(text="ВСТУПИТЬ 🛰️", callback_data="join_game"))
+    kb.row(InlineKeyboardButton(text="ЗАПУСК ЯДРА ⚡", callback_data="start_match"))
     
-    text = f"🚀 **SIGMA MONOPOLY: SPACE EDITION**\n\n👤 Хост: {m.from_user.first_name}\n💰 Капитал: `20,000$`\n\nОжидание игроков..."
-    await m.answer(text, reply_markup=kb.as_markup(), parse_mode="Markdown")
+    await m.answer(
+        f"🌌 **— ИНИЦИАЛИЗАЦИЯ МОНОПОЛИИ —**\n\n"
+        f"👨‍🚀 **Капитан:** {m.from_user.first_name}\n"
+        f"💳 **Бюджет:** `20,000$`\n"
+        f"📍 **Статус:** Ожидание экипажа...", 
+        reply_markup=kb.as_markup()
+    )
 
 @dp.callback_query(F.data == "join_game")
 async def join_game(call: types.CallbackQuery):
     game = games.get(call.message.chat.id)
-    if not game or call.from_user.id in game["players"]: return await call.answer("Вы уже в игре!")
+    if not game: return
+    if call.from_user.id in game["players"]:
+        return await call.answer("Вы уже на борту!", show_alert=True)
     
     game["players"][call.from_user.id] = {"name": call.from_user.first_name, "pos": 0, "money": 20000}
     game["order"].append(call.from_user.id)
-    await call.answer("Вы успешно вошли!")
-    add_log(f"Player {call.from_user.first_name} joined.")
+    await call.message.edit_text(
+        f"{call.message.text}\n✅ Присоединился: {call.from_user.first_name}",
+        reply_markup=call.message.reply_markup
+    )
+    add_log(f"User {call.from_user.first_name} joined game {call.message.chat.id}")
 
 @dp.callback_query(F.data == "roll")
 async def roll_callback(call: types.CallbackQuery):
     cid, uid = call.message.chat.id, call.from_user.id
     game = games.get(cid)
     if not game or game["order"][game["turn"]] != uid:
-        return await call.answer("⏳ Сейчас ход другого игрока!", show_alert=True)
+        return await call.answer("⏳ Не ваша очередь, пилот!", show_alert=True)
     
     p = game["players"][uid]
-    steps = random.randint(2, 12)
+    d1, d2 = random.randint(1, 6), random.randint(1, 6)
+    steps = d1 + d2
     p["pos"] = (p["pos"] + steps) % len(BOARD)
     tile_name, price, rent = BOARD[p["pos"]]
     
+    # Логика аренды
     owner_id = game["properties"].get(p["pos"])
-    rent_status = ""
+    rent_msg = ""
     if owner_id and owner_id != uid:
         p["money"] -= rent
         game["players"][owner_id]["money"] += rent
-        rent_status = f"\n💸 **АРЕНДА:** `- {rent}$` игроку {game['players'][owner_id]['name']}"
+        rent_msg = f"\n🔴 **УПЛАТА НАЛОГА:** -`{rent}$` владельцу {game['players'][owner_id]['name']}"
 
     can_buy = price > 0 and p["pos"] not in game["properties"] and p["money"] >= price
-
-    move_text = (
-        f"🌌 **ХОД ИГРОКА: {p['name']}**\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"🎲 Кубики: `{steps}`\n"
-        f"📍 Локация: **{tile_name}**\n"
-        f"{rent_status}\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"💰 Баланс: `{p['money']}$`"
-    )
+    
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🎲 СЛЕД. ХОД", callback_data="roll"))
+    if can_buy:
+        kb.row(InlineKeyboardButton(text=f"💎 КУПИТЬ ЗА {price}$", callback_data=f"buy_{p['pos']}"))
 
     game["turn"] = (game["turn"] + 1) % len(game["order"])
-    await call.message.answer(move_text, reply_markup=get_game_kb(can_buy), parse_mode="Markdown")
+    
+    await call.message.answer(
+        f"☄️ **РЕЗУЛЬТАТ ПРЫЖКА**\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"👤 **Пилот:** {p['name']}\n"
+        f"🎲 **Кубики:** {d1} + {d2} = `{steps}`\n"
+        f"📍 **Квадрант:** {tile_name}\n"
+        f"{rent_msg}\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"💰 **Баланс:** `{p['money']}$`",
+        reply_markup=kb.as_markup()
+    )
 
+# --- ENGINE START ---
 async def main():
-    add_log("INITIALIZING SPACE CORE...")
-    # Запуск Flask в потоке
+    add_log("CLEANING SESSIONS...")
+    # Принудительно закрываем старые сессии и удаляем вебхуки
+    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.session.close() # Закрываем старую сессию
+    
+    # Небольшая пауза, чтобы сервера Telegram сбросили конфликт
+    await asyncio.sleep(2) 
+    
+    new_bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="Markdown"))
+    
+    add_log("STARTING SPACE DASHBOARD...")
     Thread(target=lambda: app.run(host='0.0.0.0', port=PORT, use_reloader=False), daemon=True).start()
     
-    # КРИТИЧЕСКИЙ ИСПРАВЛЕНИЯ ДЛЯ ConflictError:
-    await bot.delete_webhook(drop_pending_updates=True)
-    add_log("WEBHOOK CLEARED. STARTING POLLING...")
-    
-    await dp.start_polling(bot)
+    add_log("GALACTIC POLLING STARTED.")
+    await dp.start_polling(new_bot)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        print(f"CRITICAL ERROR: {e}")
+    
