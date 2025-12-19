@@ -5,9 +5,10 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
 
-# --- КОНФИГУРАЦИЯ ---
+# --- CONFIG ---
 TOKEN = "8265158957:AAF8LjmyLM4nsBEnLOvVSNRNzC6X-ZIbGzU"
 PORT = int(os.environ.get("PORT", 8081))
+INSTANCE_ID = random.randint(1000, 9999) # Уникальный номер этого запуска
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 site_logs = []
@@ -15,10 +16,14 @@ start_time = time.time()
 
 def add_log(msg):
     site_logs.append({"time": time.strftime('%H:%M:%S'), "msg": msg})
-    if len(site_logs) > 20: site_logs.pop(0)
+    if len(site_logs) > 15: site_logs.pop(0)
 
-# --- САМАЯ КРАСИВАЯ АДМИНКА (СТИЛЬ КОСМОС) ---
+# --- САМАЯ ДЕТАЛИЗИРОВАННАЯ АДМИНКА ---
 app = Flask(__name__)
+
+@app.route('/health') # Для Render Health Check
+def health(): return "OK", 200
+
 @app.route('/')
 def dashboard():
     return render_template_string("""
@@ -26,82 +31,71 @@ def dashboard():
     <html lang="ru">
     <head>
         <meta charset="UTF-8">
-        <title>GALAXY ADMIN PANEL</title>
+        <title>COMMAND CENTER v8.0</title>
         <style>
-            body { 
-                background: #050510; color: #00f3ff; font-family: 'Segoe UI', sans-serif; 
-                margin: 0; padding: 20px; overflow: hidden;
-            }
-            .space-container {
-                border: 2px solid #00f3ff; border-radius: 25px; padding: 30px;
-                background: rgba(10, 20, 40, 0.85); backdrop-filter: blur(10px);
-                box-shadow: 0 0 50px rgba(0, 243, 255, 0.3); max-width: 800px; margin: auto;
-            }
-            .header-info { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1a3a5a; padding-bottom: 15px; }
-            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 25px; }
-            .card { background: rgba(0,0,0,0.5); border: 1px solid #1a2a3a; padding: 20px; border-radius: 15px; text-align: center; }
-            .label { font-size: 11px; color: #576574; text-transform: uppercase; margin-bottom: 5px; }
-            .value { font-size: 20px; font-weight: bold; color: #fff; }
-            .log-window { 
-                margin-top: 25px; height: 200px; overflow-y: auto; background: #000;
-                border-radius: 10px; padding: 15px; border: 1px solid #1a3a5a; font-family: monospace;
-            }
-            .status-dot { height: 10px; width: 10px; background-color: #00ff88; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px #00ff88; }
+            body { background: #000; color: #00f3ff; font-family: 'Consolas', monospace; padding: 20px; }
+            .monitor { border: 2px solid #00f3ff; border-radius: 15px; padding: 20px; box-shadow: 0 0 20px #00f3ff44; }
+            .header { border-bottom: 1px solid #1a3a5a; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; }
+            .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+            .stat-card { background: rgba(0,243,255,0.05); border: 1px solid #1a3a5a; padding: 10px; text-align: center; }
+            .log { background: #050505; height: 250px; overflow-y: auto; padding: 10px; border: 1px solid #111; font-size: 12px; }
+            .blink { animation: blinker 1s linear infinite; color: #00ff88; }
+            @keyframes blinker { 50% { opacity: 0; } }
+            .version-tag { background: #00f3ff; color: #000; padding: 2px 5px; font-weight: bold; }
         </style>
     </head>
     <body>
-        <div class="space-container">
-            <div class="header-info">
-                <div><h1 style="margin:0; letter-spacing:3px;">🛰️ SIGMA CORE</h1><small>БЕСПЛАТНАЯ ВЕРСИЯ: ОПТИМИЗИРОВАНО</small></div>
-                <div style="text-align:right;"><span class="status-dot"></span> СИСТЕМА ONLINE</div>
+        <div class="monitor">
+            <div class="header">
+                <div>🛰️ <span class="version-tag">CORE v8.0</span> SESSION: #{{ inst }}</div>
+                <div class="blink">● СИСТЕМА ПОДАВЛЕНИЯ КОНФЛИКТОВ АКТИВНА</div>
             </div>
-            <div class="grid">
-                <div class="card"><div class="label">ВЕБХУКИ</div><div class="value" style="color:#ff4444;">ВЫКЛЮЧЕНЫ</div></div>
-                <div class="card"><div class="label">АПТАЙМ</div><div class="value">{{ up }} МИН</div></div>
-                <div class="card"><div class="label">CPU</div><div class="value">{{ cpu }}%</div></div>
+            <div class="stat-grid">
+                <div class="stat-card">ВЕБХУКИ<br><span style="color:#ff4444">ОТКЛЮЧЕНЫ</span></div>
+                <div class="stat-card">CPU<br>{{ cpu }}%</div>
+                <div class="stat-card">RAM<br>{{ mem }}%</div>
+                <div class="stat-card">UPTIME<br>{{ up }}m</div>
             </div>
-            <div class="log-window">
+            <div class="log">
                 {% for l in logs %}
-                <div style="margin-bottom:6px; color:#a0d2eb;"><span style="color:#576574;">[{{ l.time }}]</span> >> {{ l.msg }}</div>
+                <div style="margin-bottom:4px; color:#576574;">[{{ l.time }}] <span style="color:#00f3ff;">>> {{ l.msg }}</span></div>
                 {% endfor %}
             </div>
         </div>
     </body>
     </html>
-    """, logs=site_logs[::-1], up=int((time.time()-start_time)/60), cpu=psutil.cpu_percent())
+    """, logs=site_logs[::-1], up=int((time.time()-start_time)/60), cpu=psutil.cpu_percent(), mem=psutil.virtual_memory().percent, inst=INSTANCE_ID)
 
-# --- МОЗГ БОТА ---
+# --- BOT LOGIC ---
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="Markdown"))
 dp = Dispatcher()
 
 @dp.message(Command("start"))
-async def start_cmd(m: types.Message):
-    await m.answer("🚀 **КОСМИЧЕСКИЙ ДВИГАТЕЛЬ ЗАПУЩЕН!**\n\nЯ успешно подавил старую версию. Теперь я — твой единственный бот.")
+async def start_handler(m: types.Message):
+    await m.answer(f"🪐 **БОРТОВОЙ КОМПЬЮТЕР v8.0**\n\nСтатус: **В СЕТИ**\nInstance ID: `{INSTANCE_ID}`\n\n_Старые процессы успешно вытеснены из памяти._")
 
-async def main():
-    add_log("ЗАГРУЗКА БОРТОВЫХ СИСТЕМ...")
+async def run_bot():
+    add_log("ЗАПУСК ПРОТОКОЛА ВЫТЕСНЕНИЯ...")
     
-    # ЭТОТ БЛОК — ГАРАНТИЯ ОТ КОНФЛИКТА
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        add_log("СТАРЫЙ КАНАЛ СВЯЗИ ЗАКРЫТ.")
-    except Exception as e:
-        add_log(f"ОШИБКА ОЧИСТКИ: {e}")
-
-    # Запуск микро-сервиса, чтобы Render не выключал бота
-    Thread(target=lambda: app.run(host='0.0.0.0', port=PORT, use_reloader=False), daemon=True).start()
-    add_log(f"СЕРВЕР ПРОВЕРКИ СТАТУСА: ПОРТ {PORT}")
-
-    # Пауза для бесплатного тарифа (Render Free Tier)
-    add_log("ПАУЗА 10 СЕКУНД ДЛЯ СБРОСА СЕССИЙ...")
-    await asyncio.sleep(10)
-
-    add_log("БОТ ВСТУПИЛ В ДЕЖУРСТВО.")
-    await dp.start_polling(bot)
+    # 1. СБРОС СТАРЫХ СОЕДИНЕНИЙ ТЕЛЕГРАМ
+    await bot.delete_webhook(drop_pending_updates=True)
+    add_log("ВЕБХУКИ ОЧИЩЕНЫ. СТАРЫЕ ОБНОВЛЕНИЯ СБРОШЕНЫ.")
+    
+    # 2. ПАУЗА 15 СЕКУНД (Критически для бесплатного Render)
+    # Это время нужно, чтобы Telegram закрыл TCP-соединение со старым ботом
+    add_log("ОЖИДАНИЕ ТАЙМАУТА СТАРОЙ СЕССИИ (15 СЕК)...")
+    await asyncio.sleep(15)
+    
+    add_log(f"ЗАПУСК ЯДРА ПОЛЛИНГА (ID: {INSTANCE_ID})")
+    await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except:
-        pass
+    add_log("ИНИЦИАЛИЗАЦИЯ КОСМИЧЕСКОГО ТЕРМИНАЛА...")
     
+    # Запуск Flask
+    Thread(target=lambda: app.run(host='0.0.0.0', port=PORT, use_reloader=False), daemon=True).start()
+    
+    try:
+        asyncio.run(run_bot())
+    except Exception as e:
+        print(f"FATAL ERROR: {e}")
