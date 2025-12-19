@@ -6,11 +6,11 @@ from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message
 
-# --- 1. НАСТРОЙКИ (Берем токен и порт) ---
+# --- 1. НАСТРОЙКИ ---
 TOKEN = "8265158957:AAF8LjmyLM4nsBEnLOvVSNRNzC6X-ZIbGzU"
 PORT = int(os.environ.get("PORT", 8081))
 
-# --- 2. КАРТА ИГРЫ (Названия и цены) ---
+# --- 2. КАРТА ИГРЫ ---
 BOARD = [
     {"name": "🚩 СТАРТ (Вход +200$)", "price": 0},
     {"name": "🏘️ Улица Мира", "price": 100},
@@ -27,10 +27,9 @@ BOARD = [
 ]
 MAP_SIZE = len(BOARD)
 
-# --- 3. ХРАНИЛИЩЕ ДАННЫХ (В оперативной памяти) ---
-players = {} # Структура: {user_id: {balance, pos, name, owns: []}}
+players = {} 
 
-# --- 4. ВЕБ-СЕРВЕР ДЛЯ RENDER (Health Check) ---
+# --- 4. ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 app = Flask(__name__)
 @app.route('/')
 def home():
@@ -52,7 +51,6 @@ def get_main_kb():
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="Markdown"))
 dp = Dispatcher()
 
-# Проверка: Группа или Личка
 def is_group(m: Message):
     return m.chat.type in ["group", "supergroup"]
 
@@ -88,21 +86,15 @@ async def roll_dice(m: Message):
     cell = BOARD[new_pos]
     res = f"👤 *{m.from_user.first_name}*\n🎲 Выпало: **{steps}**\n📍 Клетка: **{cell['name']}**\n"
 
-    # Если прошли круг
     if new_pos < old_pos:
         players[uid]["balance"] += 200
         res += "🎁 +200$ за прохождение круга!\n"
 
-    # Налоговая клетка
     if cell['name'] == "💸 Налог (-100$)":
         players[uid]["balance"] -= 100
         res += "💸 Вы заплатили налог **100$**."
-    
-    # Клетки с недвижимостью
     elif cell['price'] > 0:
-        # Ищем владельца
         owner_id = next((pid for pid, pdata in players.items() if new_pos in pdata['owns']), None)
-
         if owner_id is None:
             if players[uid]['balance'] >= cell['price']:
                 players[uid]['balance'] -= cell['price']
@@ -139,7 +131,19 @@ async def where_am_i(m: Message):
 async def my_props(m: Message):
     if not is_group(m): return
     p = players.get(m.from_user.id)
-    if p and p['owns']:
-        prop_list = "\n".join([f"— {BOARD[i]['name']}" for i in p['owns']])
-        await m.answer(f"👤 *{p['name']}*\n🏢 Ваше имущество:\n{prop_list
-        
+    if p:
+        if p['owns']:
+            prop_list = "\n".join([f"— {BOARD[i]['name']}" for i in p['owns']])
+            await m.answer(f"👤 *{p['name']}*\n🏢 Ваше имущество:\n{prop_list}")
+        else:
+            await m.answer(f"👤 *{p['name']}*\n🏢 У вас пока нет имущества.")
+
+# --- 7. ЗАПУСК ---
+async def main():
+    # Запускаем Flask в отдельном потоке
+    Thread(target=run_web, daemon=True).start()
+    # Запускаем бота
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
