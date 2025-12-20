@@ -11,7 +11,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 logging.basicConfig(level=logging.INFO)
 
 # --- КОНФИГУРАЦИЯ ---
-TOKEN = "8265158957:AAHgGmom23KQLyVh78L5CbrSaWaYFqTyOSY"
+TOKEN = "8265158957:AAH8b2hC6OyPR-VauyIOSKxnHA73QL5oMOg"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
