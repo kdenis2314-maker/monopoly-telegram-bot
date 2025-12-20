@@ -6,15 +6,17 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.client.default import DefaultBotProperties
 
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
 # --- КОНФИГУРАЦИЯ ---
 TOKEN = "8265158957:AAEMnEcldgMy7go_oxhHCweqxhe69XjKChE" 
-bot = Bot(token=TOKEN)
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="Markdown"))
 dp = Dispatcher()
 
-# Глобальные переменные
+# Состояние игры
 players = {} 
 owners = {}   
 lobby = []
@@ -23,6 +25,7 @@ game_started = False
 organizer_id = None
 current_turn_index = 0 
 
+# Ресурсы
 IMG_START = "https://i.ibb.co/v4m0YmH/monopoly-start.jpg"
 IMG_LOBBY = "https://i.ibb.co/0fX9G9g/monopoly-lobby.jpg"
 
@@ -42,116 +45,143 @@ BOARD = [
     {"name": "💎 Арбат", "price": 400, "rent": 150},
 ]
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+# --- ЛОГИКА ИНТЕРФЕЙСА ---
 
-def render_list_map(uid):
+def render_list_map(viewer_id):
+    """Отрисовка карты и статуса игроков"""
     curr_uid = lobby[current_turn_index]
     turn_name = players[curr_uid]['name']
+    
     lines = [f"🎲 **СЕЙЧАС ХОДИТ:** {turn_name}\n", "📍 **КАРТА:**\n"]
+    
     for i, cell in enumerate(BOARD):
-        m_list = [("📍 **ВЫ**" if pid == uid else f"👤 {pdata['name']}") for pid, pdata in players.items() if pdata["position"] == i]
-        # Проверка владельца
+        # Кто стоит на этой клетке
+        visitors = [f"👤 {players[pid]['name']}" if pid != viewer_id else "📍 **ВЫ**" 
+                    for pid in lobby if players[pid]['position'] == i]
+        
+        # Статус клетки (владелец или цена)
         if i in owners:
             owner_name = players[owners[i]]['name']
             status = f"🏠 {owner_name}"
         else:
             status = "—" if cell["price"] == 0 else f"💰 {cell['price']}$"
             
-        lines.append(f"{cell['name']} — `[{status}]` {' '.join(m_list)}")
-    lines.append(f"\n💵 Ваш баланс: `{players[uid]['balance']}$`")
+        visitors_str = " ".join(visitors)
+        lines.append(f"{cell['name']} — `[{status}]` {visitors_str}")
+    
+    lines.append(f"\n💵 Ваш баланс: `{players[viewer_id]['balance']}$`")
     return "\n".join(lines)
 
-def get_lobby_content():
-    names = "\n".join([f"{i+1}. {players[uid]['name']}" for i, uid in enumerate(lobby)])
-    text = (f"⏳ **ИДЕТ СБОР ИГРОКОВ**\n\n"
-            f"**Участники:**\n{names}\n\n"
-            f"📍 Минимум: 2 игрока.")
+def get_lobby_kb():
     kb = InlineKeyboardBuilder()
     kb.row(types.InlineKeyboardButton(text="✅ Вступить", callback_data="join"),
            types.InlineKeyboardButton(text="❌ Выйти", callback_data="leave"))
-    kb.row(types.InlineKeyboardButton(text="🚀 Начать сейчас", callback_data="force_start"))
-    return text, kb.as_markup()
+    kb.row(types.InlineKeyboardButton(text="🚀 Начать игру", callback_data="force_start"))
+    return kb.as_markup()
 
 # --- ОБРАБОТЧИКИ ---
 
 @dp.message(Command("monopoly"))
 async def cmd_monopoly(m: types.Message):
-    global lobby_active, game_started, lobby, owners
-    # Сброс игры для теста, если нужно начать заново
-    lobby_active, game_started = False, False
-    lobby, owners = [], {}
+    global lobby_active, game_started, lobby, owners, players
+    if lobby_active or game_started:
+        return await m.answer("⚠️ Игра уже запущена или идет сбор!")
     
-    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="🏁 Начать сбор", callback_data="start_lobby"))
-    await m.answer_photo(photo=IMG_START, caption="💎 **M O N O P O L Y**\nНажми кнопку ниже!", reply_markup=kb.as_markup())
+    # Сброс данных перед новой игрой
+    lobby, owners, players = [], {}, {}
+    lobby_active = True
+    
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="🏁 Создать лобби", callback_data="start_lobby"))
+    await m.answer_photo(photo=IMG_START, caption="💎 **M O N O P O L Y**\nНажми кнопку, чтобы собрать игроков!", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "start_lobby")
 async def lobby_start(c: types.CallbackQuery):
-    global lobby_active, organizer_id, current_turn_index
-    lobby_active, organizer_id, current_turn_index = True, c.from_user.id, 0
-    lobby.append(organizer_id)
-    players[organizer_id] = {"name": c.from_user.first_name[:10], "balance": 1500, "position": 0}
+    global organizer_id, current_turn_index
+    organizer_id = c.from_user.id
+    current_turn_index = 0
     
-    text, kb = get_lobby_content()
-    await c.message.answer_photo(photo=IMG_LOBBY, caption=text, reply_markup=kb)
+    if organizer_id not in lobby:
+        lobby.append(organizer_id)
+        players[organizer_id] = {"name": c.from_user.first_name[:10], "balance": 1500, "position": 0}
+    
     await c.message.delete()
+    await c.message.answer_photo(
+        photo=IMG_LOBBY, 
+        caption=f"⏳ **СБОР ИГРОКОВ**\n\nОрганизатор: {c.from_user.first_name}\nУчастников: {len(lobby)}", 
+        reply_markup=get_lobby_kb()
+    )
 
 @dp.callback_query(F.data == "join")
-async def join(c: types.CallbackQuery):
-    if lobby_active and c.from_user.id not in lobby:
-        lobby.append(c.from_user.id)
-        players[c.from_user.id] = {"name": c.from_user.first_name[:10], "balance": 1500, "position": 0}
-        text, kb = get_lobby_content()
-        await c.message.edit_caption(caption=text, reply_markup=kb)
-    await c.answer()
+async def join_game(c: types.CallbackQuery):
+    if not lobby_active: return await c.answer("Сбор уже закончен.")
+    if c.from_user.id in lobby: return await c.answer("Вы уже в игре!")
+    
+    lobby.append(c.from_user.id)
+    players[c.from_user.id] = {"name": c.from_user.first_name[:10], "balance": 1500, "position": 0}
+    
+    await c.message.edit_caption(
+        caption=f"⏳ **СБОР ИГРОКОВ**\n\nУчастников: {len(lobby)}\nПоследний зашел: {c.from_user.first_name}",
+        reply_markup=get_lobby_kb()
+    )
+    await c.answer("Вы вступили!")
 
 @dp.callback_query(F.data == "force_start")
 async def force_start(c: types.CallbackQuery):
-    if c.from_user.id == organizer_id:
-        if len(lobby) >= 2:
-            global lobby_active, game_started
-            lobby_active, game_started = False, True
-            kb = ReplyKeyboardBuilder().button(text="🎲 Бросить кубик").as_markup(resize_keyboard=True)
-            await c.message.answer(f"🎮 **ИГРА НАЧАЛАСЬ!**\nПервым ходит: **{players[lobby[0]]['name']}**", reply_markup=kb)
-            await c.message.delete()
-        else:
-            await c.answer("Нужно минимум 2 игрока!", show_alert=True)
-    await c.answer()
+    global lobby_active, game_started
+    if c.from_user.id != organizer_id:
+        return await c.answer("Только организатор может начать игру!", show_alert=True)
+    
+    if len(lobby) < 2:
+        return await c.answer("Нужно хотя бы 2 игрока!", show_alert=True)
+    
+    lobby_active, game_started = False, True
+    kb = ReplyKeyboardBuilder().button(text="🎲 Бросить кубик").as_markup(resize_keyboard=True)
+    
+    await c.message.delete()
+    await bot.send_message(c.message.chat.id, f"🎮 **ИГРА НАЧАЛАСЬ!**\n\nПервым ходит: **{players[lobby[0]]['name']}**", reply_markup=kb)
 
 @dp.message(F.text == "🎲 Бросить кубик")
-async def roll(m: types.Message):
+async def roll_dice(m: types.Message):
     global current_turn_index
     if not game_started: return
-    if m.from_user.id != lobby[current_turn_index]:
-        return await m.answer("Сейчас не твой ход! Подожди очереди.")
     
-    p = players[m.from_user.id]
+    current_player_id = lobby[current_turn_index]
+    if m.from_user.id != current_player_id:
+        return await m.answer(f"⏳ Сейчас ход игрока **{players[current_player_id]['name']}**!")
+    
+    p = players[current_player_id]
     dice = random.randint(1, 6)
     p["position"] = (p["position"] + dice) % len(BOARD)
     cell = BOARD[p["position"]]
     
-    res = f"🎲 **{p['name']}** выкинул {dice} и встал на **{cell['name']}**\n"
+    msg = f"🎲 **{p['name']}** выкинул {dice} и попал на **{cell['name']}**\n"
     kb = InlineKeyboardBuilder()
     
-    # Логика аренды
-    if p["position"] in owners and owners[p["position"]] != m.from_user.id:
+    # 1. Налог или спец-клетка
+    if cell["name"] == "💸 Налог":
+        p["balance"] -= 100
+        msg += "💸 Вы заплатили налог 100$!\n"
+        
+    # 2. Аренда
+    elif p["position"] in owners and owners[p["position"]] != current_player_id:
         owner_id = owners[p["position"]]
         rent = cell["rent"]
         p["balance"] -= rent
         players[owner_id]["balance"] += rent
-        res += f"💸 Оплачена аренда: {rent}$ игроку {players[owner_id]['name']}\n"
-    
-    # Логика покупки
+        msg += f"💰 Оплачена аренда {rent}$ игроку {players[owner_id]['name']}\n"
+        
+    # 3. Возможность покупки
     elif cell["price"] > 0 and p["position"] not in owners:
         if p["balance"] >= cell["price"]:
             kb.button(text=f"🛒 Купить за {cell['price']}$", callback_data=f"buy_{p['position']}")
     
-    # Передаем ход СЛЕДУЮЩЕМУ
+    # Переход хода
     current_turn_index = (current_turn_index + 1) % len(lobby)
     
-    await m.answer(res + "\n" + render_list_map(m.from_user.id), reply_markup=kb.as_markup(), parse_mode="Markdown")
+    await m.answer(msg + "\n" + render_list_map(m.from_user.id), reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data.startswith("buy_"))
-async def buy(c: types.CallbackQuery):
+async def process_buy(c: types.CallbackQuery):
     idx = int(c.data.split("_")[1])
     p = players[c.from_user.id]
     cell = BOARD[idx]
@@ -159,28 +189,33 @@ async def buy(c: types.CallbackQuery):
     if p["balance"] >= cell["price"] and idx not in owners:
         p["balance"] -= cell["price"]
         owners[idx] = c.from_user.id
-        await c.message.edit_text(f"✅ **{p['name']}** купил {cell['name']}!\n\n" + render_list_map(c.from_user.id), parse_mode="Markdown")
+        await c.message.edit_text(f"✅ **{p['name']}** приобрел {cell['name']}!\n\n" + render_list_map(c.from_user.id))
     else:
-        await c.answer("Недостаточно денег или уже куплено!", show_alert=True)
-    await c.answer()
+        await c.answer("Ошибка покупки!", show_alert=True)
 
-# --- ЗАПУСК ---
-async def handle(request): return web.Response(text="Bot is running")
+# --- ИСПРАВЛЕННЫЙ ЗАПУСК ДЛЯ RENDER ---
+
+async def handle(request):
+    return web.Response(text="Monopoly Bot is Running", status=200)
 
 async def main():
-    # Запускаем веб-сервер фоном, чтобы не блокировать бота
+    # Настройка Web-сервера (Health Check для Render)
     app = web.Application()
     app.router.add_get('/', handle)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080)))
-    asyncio.create_task(site.start()) 
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    
+    logging.info(f"Server starting on port {port}")
+    asyncio.create_task(site.start()) # Запуск в фоне
 
+    # Запуск бота
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Бот остановлен")
+    except Exception as e:
+        logging.error(f"FATAL: {e}")
