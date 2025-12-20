@@ -9,7 +9,7 @@ from aiogram.types import Message
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout)
 
 # ТВОЙ ТОКЕН (лучше брать из env переменных)
-TOKEN = "8265158957:AAF47AzlevRoyn7CLOMHkB7HsxQu5MUdpSg"
+TOKEN = "8265158957:AAHuRGxiA3XWFOf2N6Bzehk0L2PFJzYpJHI"
 
 # Инициализация бота и диспетчера
 bot = Bot(token=TOKEN)
