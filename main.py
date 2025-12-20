@@ -23,7 +23,7 @@ def add_log(text):
     print(full_log) # Дублируем в консоль Render
 
 # --- 2. НАСТРОЙКИ ---
-TOKEN = "8265158957:AAF8LjmyLM4nsBEnLOvVSNRNzC6X-ZIbGzU" # ЗАМЕНИ НА НОВЫЙ, ЕСЛИ СДЕЛАЛ REVOKE
+TOKEN = "8265158957:AAF47AzlevRoyn7CLOMHkB7HsxQu5MUdpSg" # ЗАМЕНИ НА НОВЫЙ, ЕСЛИ СДЕЛАЛ REVOKE
 PORT = int(os.environ.get("PORT", 10000))
 
 BOARD = [
