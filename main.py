@@ -1,4 +1,7 @@
-import asyncio, os, random
+import asyncio
+import os
+import random
+import logging
 from flask import Flask, render_template_string
 from threading import Thread
 from aiogram import Bot, Dispatcher, types, F
@@ -6,7 +9,11 @@ from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-# --- 1. НАСТРОЙКИ ---
+# --- 1. НАСТРОЙКИ И ЛОГИРОВАНИЕ ---
+# Включаем логи, чтобы видеть, доходят ли сообщения до кода
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 TOKEN = "8265158957:AAF8LjmyLM4nsBEnLOvVSNRNzC6X-ZIbGzU"
 PORT = int(os.environ.get("PORT", 10000))
 
@@ -84,6 +91,7 @@ dp = Dispatcher()
 
 @dp.message(Command("monopoly"))
 async def cmd_monopoly(m: Message):
+    logger.info(f"Команда /monopoly от {m.from_user.id}")
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🚀 Начать сбор", callback_query_data="l_start")]])
     await m.answer("🏨 **MONOPOLY ONLINE**\nНажмите кнопку ниже, чтобы собрать игроков!", reply_markup=kb)
 
@@ -132,7 +140,6 @@ async def roll(call: CallbackQuery):
         p['balance'] += ev['reward']
         msg += f"\n✨ **ШАНС:** {ev['text']} (`{ev['reward']}$`)"
     elif cell['price'] > 0:
-        # Логика упрощенной покупки
         p['balance'] -= cell['price']
         msg += f"\n💳 Списано: {cell['price']}$"
 
@@ -166,8 +173,21 @@ async def exit_no(call: CallbackQuery):
 
 # --- 6. ЗАПУСК ---
 async def main():
+    # Запуск веб-панели в отдельном потоке
     Thread(target=run_flask, daemon=True).start()
-    await dp.start_polling(bot)
+    
+    # Удаляем вебхуки (критично для исправления "молчания")
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    logger.info("Бот запущен. Ожидание сообщений...")
+    
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Работа завершена")
