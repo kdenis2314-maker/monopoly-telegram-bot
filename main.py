@@ -1,36 +1,36 @@
-import os, asyncio, sqlite3, aiohttp, logging
+import os, asyncio, sqlite3, aiohttp, logging, random
 from threading import Thread
 from flask import Flask, render_template_string
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from aiogram.types import ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardRemove, URLInputFile
 
 # --- КОНФИГ ---
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.getenv("BOT_TOKEN")
 DEV_TAG = "@Whylovely05"
 PORT = int(os.environ.get("PORT", 8083))
-IS_ACTIVE = True 
 BANNER = "┏━━━━━━━━━━━━━━━━━━┓\n┃  Monopoly for SHIT DAILY  ┃\n┗━━━━━━━━━━━━━━━━━━┛"
 MONOPOLY_IMG = "https://files.catbox.moe/o2809u.jpg"
-
-# Текст правил
-RULES_TEXT = (
-    "📜 **ПРАВИЛА ИГРЫ Monopoly for SHIT DAILY:**\n\n"
-    "1. Стартовый капитал: **$1500**.\n"
-    "2. Бросайте кубик и передвигайтесь по полю.\n"
-    "3. Покупайте улицы, чтобы брать аренду с других игроков.\n"
-    "4. Клетка '30' отправляет тебя в **Тюрьму** на 3 хода.\n"
-    "5. Если баланс < 0 — ты банкрот.\n"
-    "6. Игра идет до последнего выжившего богача!"
-)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
-# --- 🗄️ БАЗА ДАННЫХ (ЛОГИКА СОХРАНЕНА) ---
+# --- 🗺️ КАРТА ГОРОДА (Название, Цена, Аренда) ---
+BOARD = {
+    1: ["Житная", 60, 10], 3: ["Нагатинская", 60, 10], 5: ["Рижская ж/д", 200, 25],
+    6: ["Варшавское ш.", 100, 15], 8: ["Огородный пр.", 100, 15], 9: ["Рижская", 120, 20],
+    11: ["Курская", 140, 25], 13: ["Абрамцево", 140, 25], 14: ["Пантелеевская", 160, 30],
+    16: ["Вавилова", 180, 35], 18: ["Тимирязевская", 180, 35], 19: ["Лихоборы", 200, 40],
+    21: ["Арбат", 220, 45], 23: ["Полянка", 220, 45], 24: ["Сретенка", 240, 50],
+    25: ["Курская ж/д", 200, 25], 26: ["Ростовская", 260, 55], 27: ["Рязанский пр.", 260, 55],
+    29: ["Новинский б-р", 280, 60], 31: ["Пушкинская", 300, 70], 32: ["Тверская", 300, 70],
+    34: ["Маяковского", 320, 80], 37: ["Кутузовский", 350, 90], 39: ["Бродвей", 400, 100]
+}
+
+# --- 🗄️ БАЗА ДАННЫХ ---
 def db_query(sql, params=()):
     try:
         with sqlite3.connect('monopoly_final.db', check_same_thread=False) as conn:
@@ -39,104 +39,139 @@ def db_query(sql, params=()):
             conn.commit()
             return cur.fetchall()
     except Exception as e:
-        logging.error(f"DB Error: {e}")
-        return []
+        logging.error(f"DB Error: {e}"); return []
 
 def init_db():
-    db_query('''CREATE TABLE IF NOT EXISTS players 
-        (chat_id int, user_id int, name text, balance int, pos int, jail int, turn_order int, PRIMARY KEY(chat_id, user_id))''')
-    db_query('''CREATE TABLE IF NOT EXISTS game_state 
-        (chat_id int PRIMARY KEY, current_turn_idx int DEFAULT 0, organizer_id int, status text DEFAULT 'lobby')''')
+    db_query("CREATE TABLE IF NOT EXISTS players (chat_id int, user_id int, name text, balance int, pos int, jail int, PRIMARY KEY(chat_id, user_id))")
+    db_query("CREATE TABLE IF NOT EXISTS property (chat_id int, cell_idx int, owner_id int, houses int, PRIMARY KEY(chat_id, cell_idx))")
+    db_query("CREATE TABLE IF NOT EXISTS game_state (chat_id int PRIMARY KEY, status text DEFAULT 'lobby')")
+
+# --- 🧠 ИИ-ВЕДУЩИЙ ---
+async def ai_say(text):
+    try:
+        url = f"https://text.pollinations.ai/Ты ведущий Монополии от {DEV_TAG}. Ответь кратко и дерзко на событие: {text}"
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, timeout=5) as r:
+                return await r.text() if r.status == 200 else "Твой ход!"
+    except: return "Двигайся, бро! ✨"
 
 # --- ⌨️ КЛАВИАТУРЫ ---
+def get_reply_kb():
+    return ReplyKeyboardBuilder().button(text="🎲 Бросить кубик").button(text="📊 Активы").button(text="❌ Скрыть меню").adjust(2, 1).as_markup(resize_keyboard=True)
 
-# 1. Reply-кнопки (Вместо клавиатуры)
-def get_reply_game_kb():
-    kb = ReplyKeyboardBuilder()
-    kb.button(text="🎲 Бросить кубик")
-    kb.button(text="🗺️ Карта")
-    kb.button(text="📊 Активы")
-    kb.button(text="❌ Скрыть меню")
-    kb.adjust(2, 2)
-    return kb.as_markup(resize_keyboard=True)
-
-# 2. Inline-кнопки (В чате)
 def get_inline_game_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="🎲 Бросить кубик", callback_data="roll_dice")
-    kb.button(text="🗺️ Карта", callback_data="show_map")
     kb.button(text="📊 Активы", callback_data="show_assets")
-    kb.button(text="🔄 Вернуть меню", callback_data="restore_reply_menu")
-    kb.adjust(2, 1, 1)
-    return kb.as_markup()
+    kb.button(text="🔄 Вернуть меню", callback_data="restore_menu")
+    return kb.adjust(2, 1).as_markup()
 
-# --- 🎯 ХЕНДЛЕРЫ ---
+# --- 🎯 ЛОГИКА ИГРЫ ---
+async def handle_move(uid, cid, dice):
+    p = db_query("SELECT name, balance, pos, jail FROM players WHERE chat_id=? AND user_id=?", (cid, uid))[0]
+    name, bal, pos, jail = p
+    
+    if jail > 0:
+        db_query("UPDATE players SET jail=jail-1 WHERE chat_id=? AND user_id=?", (cid, uid))
+        return f"⛓ {name}, ты в тюрьме! Сидеть еще {jail} х.", None
 
+    new_pos = (pos + dice) % 40
+    msg = f"🎲 Выпало {dice}! {name} на клетке {new_pos}.\n"
+    if new_pos < pos: 
+        bal += 200
+        msg += "💰 Прошел круг! +$200.\n"
+
+    # Клетки событий
+    if new_pos == 30: # Полиция
+        db_query("UPDATE players SET pos=10, jail=3 WHERE chat_id=? AND user_id=?", (cid, uid))
+        return msg + "👮‍♂️ МУСОРА! Ты в тюрьме на 3 хода.", None
+    
+    if new_pos in BOARD:
+        prop = BOARD[new_pos]
+        owner = db_query("SELECT owner_id, houses FROM property WHERE chat_id=? AND cell_idx=?", (cid, new_pos))
+        if not owner:
+            kb = InlineKeyboardBuilder().button(text=f"Купить {prop[0]} за ${prop[1]}", callback_data=f"buy_{new_pos}").as_markup()
+            db_query("UPDATE players SET pos=? WHERE chat_id=? AND user_id=?", (new_pos, cid, uid))
+            return msg + f"🏠 **{prop[0]}** свободна! Покупаем?", kb
+        else:
+            oid, houses = owner[0]
+            if oid != uid:
+                rent = prop[2] * (houses + 1)
+                db_query("UPDATE players SET balance=balance-? WHERE chat_id=? AND user_id=?", (rent, cid, uid))
+                db_query("UPDATE players SET balance=balance+? WHERE chat_id=? AND user_id=?", (rent, cid, oid))
+                msg += f"💸 Попал к конкуренту! Заплатил ${rent} аренды."
+    
+    db_query("UPDATE players SET pos=?, balance=? WHERE chat_id=? AND user_id=?", (new_pos, bal, cid, uid))
+    return msg + await ai_say(f"игрок стал на {new_pos}"), None
+
+# --- 🚀 ХЕНДЛЕРЫ ---
 @dp.message(Command("monopoly"))
-async def cmd_monopoly(message: types.Message):
+async def start(m: types.Message):
     init_db()
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🎲 Сбор игроков", callback_data="start_lobby")
-    kb.button(text="📜 Правила", callback_data="show_rules") # ВОТ ОНА!
-    kb.button(text="👨‍💻 О девелопере", callback_data="dev_info")
-    kb.adjust(1)
-    
-    try:
-        await message.answer_photo(photo=MONOPOLY_IMG, caption=f"{BANNER}\n\nГотовы к игре?", reply_markup=kb.as_markup())
-    except:
-        await message.answer(f"{BANNER}\n\nГотовы к игре?", reply_markup=kb.as_markup())
+    kb = InlineKeyboardBuilder().button(text="🎲 Сбор", callback_data="lobby").button(text="📜 Правила", callback_data="rules").as_markup()
+    await m.answer_photo(MONOPOLY_IMG, caption=f"{BANNER}\n\nГотовы?", reply_markup=kb)
 
-@dp.callback_query(F.data == "show_rules")
-async def call_rules(call: types.CallbackQuery):
-    await call.message.answer(RULES_TEXT)
-    await call.answer()
+@dp.callback_query(F.data == "lobby")
+async def lobby(c: types.CallbackQuery):
+    db_query("INSERT OR IGNORE INTO game_state (chat_id) VALUES (?)", (c.message.chat.id,))
+    players = db_query("SELECT name FROM players WHERE chat_id=?", (c.message.chat.id,))
+    kb = InlineKeyboardBuilder().button(text="✅ Вступить", callback_data="join").button(text="▶️ Старт", callback_data="go").adjust(1).as_markup()
+    await c.message.edit_caption(caption=f"👥 Игроков: {len(players)}", reply_markup=kb)
 
-@dp.callback_query(F.data == "start_lobby")
-async def lobby(call: types.CallbackQuery):
-    cid, uid = call.message.chat.id, call.from_user.id
-    db_query("INSERT OR IGNORE INTO game_state (chat_id, organizer_id, status) VALUES (?, ?, 'lobby')", (cid, uid))
-    players = db_query("SELECT name FROM players WHERE chat_id=?", (cid,))
-    players_list = "\n".join([f"👤 {p[0]}" for p in players]) or "Ждем игроков..."
-    
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Вступить", callback_data="join_game")
-    if len(players) >= 2: kb.button(text="▶️ Начать игру", callback_data="go_active")
-    
-    await call.message.edit_caption(caption=f"{BANNER}\n\n**ЛОББИ:**\n{players_list}", reply_markup=kb.as_markup())
+@dp.callback_query(F.data == "join")
+async def join(c: types.CallbackQuery):
+    db_query("INSERT OR IGNORE INTO players VALUES (?,?,?,1500,0,0)", (c.message.chat.id, c.from_user.id, c.from_user.first_name))
+    await lobby(c)
 
-@dp.callback_query(F.data == "go_active")
-async def start_game(call: types.CallbackQuery):
-    db_query("UPDATE game_state SET status='active' WHERE chat_id=?", (call.message.chat.id,))
-    await call.message.answer("🎉 Игра началась! Кнопки появились снизу.", reply_markup=get_reply_game_kb())
-    await call.message.delete()
+@dp.callback_query(F.data == "go")
+async def go(c: types.CallbackQuery):
+    await c.message.answer("🎉 Погнали! Кнопки снизу.", reply_markup=get_reply_kb())
+    await c.message.delete()
 
-# --- ЛОГИКА МЕНЮ (СКРЫТЬ/ВЕРНУТЬ) ---
-
+# --- ПЕРЕКЛЮЧЕНИЕ МЕНЮ ---
 @dp.message(F.text == "❌ Скрыть меню")
-async def hide_menu(message: types.Message):
-    await message.answer("Клавиатура скрыта. Управление перенесено в чат.", reply_markup=ReplyKeyboardRemove())
-    await message.answer("🕹️ Меню управления:", reply_markup=get_inline_game_kb())
+async def hide(m: types.Message):
+    await m.answer("Клавиатура скрыта. Управление здесь:", reply_markup=ReplyKeyboardRemove())
+    await m.answer("🕹️ МЕНЮ:", reply_markup=get_inline_game_kb())
 
-@dp.callback_query(F.data == "restore_reply_menu")
-async def restore_menu(call: types.CallbackQuery):
-    await call.message.delete()
-    await call.message.answer("✅ Меню возвращено вниз!", reply_markup=get_reply_game_kb())
-    await call.answer()
+@dp.callback_query(F.data == "restore_menu")
+async def restore(c: types.CallbackQuery):
+    await c.message.delete()
+    await c.message.answer("🔄 Меню вернулось!", reply_markup=get_reply_kb())
 
-# --- ИГРОВАЯ ЛОГИКА ---
-
+# --- ДЕЙСТВИЯ ---
 @dp.message(F.text == "🎲 Бросить кубик")
 @dp.callback_query(F.data == "roll_dice")
-async def roll_dice(event):
-    msg = event if isinstance(event, types.Message) else event.message
-    dice = await msg.answer_dice("🎲")
+async def roll(event):
+    m = event if isinstance(event, types.Message) else event.message
+    d = await m.answer_dice("🎲")
     await asyncio.sleep(3.5)
-    await msg.answer(f"Результат: {dice.dice.value}!")
+    text, kb = await handle_move(event.from_user.id, m.chat.id, d.dice.value)
+    await m.answer(text, reply_markup=kb)
     if isinstance(event, types.CallbackQuery): await event.answer()
 
-# --- ЗАПУСК ---
+@dp.callback_query(F.data.startswith("buy_"))
+async def buy(c: types.CallbackQuery):
+    idx = int(c.data.split("_")[1])
+    uid, cid = c.from_user.id, c.message.chat.id
+    bal = db_query("SELECT balance FROM players WHERE chat_id=? AND user_id=?", (cid, uid))[0][0]
+    if bal >= BOARD[idx][1]:
+        db_query("UPDATE players SET balance=balance-? WHERE chat_id=? AND user_id=?", (BOARD[idx][1], cid, uid))
+        db_query("INSERT INTO property VALUES (?,?,?,0)", (cid, idx, uid))
+        await c.message.answer(f"✅ Ты купил {BOARD[idx][0]}!")
+    else: await c.answer("Денег нет, бро!", show_alert=True)
+    await c.message.delete()
+
+@dp.message(F.text == "📊 Активы")
+@dp.callback_query(F.data == "show_assets")
+async def assets(event):
+    m = event if isinstance(event, types.Message) else event.message
+    res = db_query("SELECT balance FROM players WHERE user_id=?", (event.from_user.id,))
+    await m.answer(f"💰 Твой баланс: ${res[0][0] if res else 0}")
+
+# --- САЙТ ---
 @app.route('/')
-def index(): return "MONOPOLY LIVE", 200
+def web(): return "<h1>SHIT DAILY MONOPOLY ONLINE</h1>", 200
 
 def run_flask(): app.run(host="0.0.0.0", port=PORT)
 
@@ -145,5 +180,4 @@ async def main():
     Thread(target=run_flask, daemon=True).start()
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+if __name__ == "__main__": asyncio.run(main())
