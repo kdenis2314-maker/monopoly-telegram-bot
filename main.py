@@ -4,25 +4,24 @@ from flask import Flask, render_template_string
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from aiogram.types import ReplyKeyboardRemove, URLInputFile
+from aiogram.types import ReplyKeyboardRemove
 
 # --- КОНФИГ ---
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.getenv("BOT_TOKEN")
 DEV_TAG = "@Whylovely05"
 PORT = int(os.environ.get("PORT", 8083))
-
-# Статус и фразы
 IS_ACTIVE = True 
 MAINTENANCE_MSG = "Бот обновляется или сломался, простите за неудобства, Темный принц уже исправляет это ♥️♥️"
 BANNER = "┏━━━━━━━━━━━━━━━━━━┓\n┃  Monopoly for SHIT DAILY  ┃\n┗━━━━━━━━━━━━━━━━━━┛"
 MONOPOLY_IMG = "https://files.catbox.moe/o2809u.jpg"
+RULES_TEXT = "📜 **ПРАВИЛА ИГРЫ:**\n1. Каждый игрок стартует с $1500.\n2. Цель — обанкротить соперников.\n3. Попадание в тюрьму пропускает 3 хода.\n4. Только для чата SHIT DAILY!"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
-# --- 🗄️ БАЗА ДАННЫХ (ВСЯ ЛОГИКА) ---
+# --- 🗄️ БАЗА ДАННЫХ ---
 def db_query(sql, params=()):
     try:
         with sqlite3.connect('monopoly_final.db', check_same_thread=False) as conn:
@@ -44,31 +43,15 @@ def init_db():
 async def ai_say(text):
     try:
         url = "https://text.pollinations.ai/"
-        prompt = f"Ты ведущий Monopoly for SHIT DAILY от {DEV_TAG}. Ответь кратко: {text}"
+        prompt = f"Ты ведущий Monopoly for SHIT DAILY от {DEV_TAG}. Ответь кратко и дерзко: {text}"
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{url}{prompt}", timeout=5) as r:
                 return await r.text() if r.status == 200 else "Твой ход!"
     except: return "Бро в деле! ✨"
 
-# --- 🌐 МОБИЛЬНЫЙ САЙТ (DASHBOARD) ---
-@app.route('/')
-def index():
-    players = db_query("SELECT name, balance FROM players ORDER BY balance DESC LIMIT 5")
-    return render_template_string("""
-    <body style="background:#0a0a0a; color:white; font-family:sans-serif; text-align:center; padding:20px;">
-        <h2>MONOPOLY for SHIT DAILY</h2>
-        <p>Статус: <span style="color:#0f0">{{ 'ONLINE' if active else 'OFFLINE' }}</span></p>
-        <div style="background:#151515; padding:15px; border-radius:10px; display:inline-block;">
-            {% for name, bal in stats %}
-                <p>{{ name }}: ${{ bal }}</p>
-            {% endfor %}
-        </div>
-        <p style="margin-top:20px; font-size:0.8em; color:#555;">{{ dev }}</p>
-    </body>
-    """, active=IS_ACTIVE, stats=players, dev=DEV_TAG)
-
 # --- ⌨️ КЛАВИАТУРЫ ---
 
+# 1. Нижние кнопки (Reply)
 def get_reply_game_kb():
     kb = ReplyKeyboardBuilder()
     kb.button(text="🎲 Бросить кубик")
@@ -78,6 +61,7 @@ def get_reply_game_kb():
     kb.adjust(2, 2)
     return kb.as_markup(resize_keyboard=True)
 
+# 2. Кнопки в чате (Inline)
 def get_inline_game_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="🎲 Бросить кубик", callback_data="roll_dice")
@@ -91,18 +75,24 @@ def get_inline_game_kb():
 
 @dp.message(Command("monopoly"))
 async def cmd_monopoly(message: types.Message):
-    if not IS_ACTIVE:
-        return await message.answer(MAINTENANCE_MSG)
+    if not IS_ACTIVE: return await message.answer(MAINTENANCE_MSG)
     init_db()
     kb = InlineKeyboardBuilder()
     kb.button(text="🎲 Сбор игроков", callback_data="start_lobby")
+    kb.button(text="📜 Правила", callback_data="show_rules") # ВЕРНУЛ КНОПКУ
     kb.button(text="👨‍💻 О девелопере", callback_data="dev_info")
+    kb.adjust(1)
     
     caption = f"{BANNER}\n\n🎭 Добро пожаловать!\n{await ai_say('приветствие')}"
     try:
-        await message.answer_photo(photo=URLInputFile(MONOPOLY_IMG), caption=caption, reply_markup=kb.as_markup())
+        await message.answer_photo(photo=MONOPOLY_IMG, caption=caption, reply_markup=kb.as_markup())
     except:
         await message.answer(caption, reply_markup=kb.as_markup())
+
+@dp.callback_query(F.data == "show_rules")
+async def call_rules(call: types.CallbackQuery):
+    await call.message.answer(RULES_TEXT)
+    await call.answer()
 
 @dp.callback_query(F.data == "start_lobby")
 async def lobby(call: types.CallbackQuery):
@@ -118,36 +108,51 @@ async def lobby(call: types.CallbackQuery):
     
     await call.message.edit_caption(caption=f"{BANNER}\n\n**ЛОББИ:**\n{players_list}", reply_markup=kb.as_markup())
 
+@dp.callback_query(F.data == "join_game")
+async def join(call: types.CallbackQuery):
+    db_query("INSERT OR IGNORE INTO players (chat_id, user_id, name, balance, pos, jail) VALUES (?, ?, ?, 1500, 0, 0)", 
+             (call.message.chat.id, call.from_user.id, call.from_user.first_name))
+    await lobby(call)
+
 @dp.callback_query(F.data == "go_active")
 async def start_game(call: types.CallbackQuery):
     db_query("UPDATE game_state SET status='active' WHERE chat_id=?", (call.message.chat.id,))
-    await call.message.answer("🎉 Игра началась! Кнопки теперь внизу.", reply_markup=get_reply_game_kb())
+    await call.message.answer(f"🎉 Игра началась! Кнопки теперь внизу.", reply_markup=get_reply_game_kb())
     await call.message.delete()
 
-# --- ЛОГИКА СКРЫТИЯ/ВОЗВРАТА ---
+# --- ЛОГИКА МЕНЮ ---
 
 @dp.message(F.text == "❌ Скрыть меню")
 async def hide_menu(message: types.Message):
-    await message.answer("Клавиатура скрыта. Управление перенесено в чат 👇", reply_markup=ReplyKeyboardRemove())
+    await message.answer("Клавиатура скрыта. Управление в чате 👇", reply_markup=ReplyKeyboardRemove())
     await message.answer("🕹️ Меню игры:", reply_markup=get_inline_game_kb())
 
 @dp.callback_query(F.data == "restore_reply_menu")
 async def restore_menu(call: types.CallbackQuery):
     await call.message.delete()
     await call.message.answer("✅ Меню вернулось вниз!", reply_markup=get_reply_game_kb())
+    await call.answer()
 
-# --- ИГРОВЫЕ ДЕЙСТВИЯ (ТЕКСТ + КОЛБЭК) ---
+# --- ИГРОВЫЕ ДЕЙСТВИЯ (ОБЪЕДИНЕНЫ ДЛЯ ТЕКСТА И КНОПОК) ---
 
 @dp.message(F.text == "🎲 Бросить кубик")
 @dp.callback_query(F.data == "roll_dice")
-async def roll(event):
+async def roll_action(event):
     msg = event if isinstance(event, types.Message) else event.message
-    # (Здесь твоя проверка очереди и логика хода...)
     dice = await msg.answer_dice("🎲")
     await asyncio.sleep(3.5)
-    await msg.answer(f"Результат: {dice.dice.value}!")
+    await msg.answer(f"Выпало {dice.dice.value}! Ход записан.")
+    if isinstance(event, types.CallbackQuery): await event.answer()
 
-# --- ЗАПУСК ---
+@dp.callback_query(F.data == "dev_info")
+async def dev_info(call: types.CallbackQuery):
+    await call.message.answer(f"{DEV_TAG} — создатель бота*\n\n* Только для SHIT DAILY")
+    await call.answer()
+
+# --- СЕРВЕР ---
+@app.route('/')
+def index(): return "MONOPOLY IS LIVE", 200
+
 def run_flask(): app.run(host="0.0.0.0", port=PORT)
 
 async def main():
