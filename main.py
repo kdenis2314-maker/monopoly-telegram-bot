@@ -13,16 +13,16 @@ PORT = int(os.environ.get("PORT", 8083))
 IS_ACTIVE = True 
 MAINTENANCE_MSG = "Бот обновляется или сломался, простите за неудобства, Темный принц уже исправляет это ♥️♥️"
 BANNER = "┏━━━━━━━━━━━━━━━━━━┓\n┃  Monopoly for SHIT DAILY  ┃\n┗━━━━━━━━━━━━━━━━━━┛"
+# Прямая ссылка на фото (проверь её в браузере)
 MONOPOLY_IMG = "https://files.catbox.moe/o2809u.jpg"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
-# --- 🗄️ БАЗА ДАННЫХ (С фиксом для многопоточности) ---
+# --- 🗄️ БАЗА ДАННЫХ (БЕЗ ИЗМЕНЕНИЙ ЛОГИКИ) ---
 def db_query(sql, params=()):
     try:
-        # check_same_thread=False нужен, чтобы Flask и Бот не конфликтовали
         with sqlite3.connect('monopoly_final.db', check_same_thread=False) as conn:
             cur = conn.cursor()
             cur.execute(sql, params)
@@ -38,7 +38,7 @@ def init_db():
     db_query('''CREATE TABLE IF NOT EXISTS game_state 
         (chat_id int PRIMARY KEY, current_turn_idx int DEFAULT 0, organizer_id int, status text DEFAULT 'lobby')''')
 
-# --- 🧠 ИИ-ВЕДУЩИЙ ---
+# --- 🧠 ИИ-ВЕДУЩИЙ (БЕЗ ИЗМЕНЕНИЙ) ---
 async def ai_say(text):
     try:
         url = "https://text.pollinations.ai/"
@@ -48,7 +48,7 @@ async def ai_say(text):
                 return await r.text() if r.status == 200 else "Твой ход!"
     except: return "Бро в деле! ✨"
 
-# --- 🌐 ВЕБ-ИНТЕРФЕЙС ---
+# --- 🌐 МОБИЛЬНЫЙ САЙТ (БЕЗ ИЗМЕНЕНИЙ) ---
 @app.route('/')
 def index():
     players = db_query("SELECT name, balance FROM players ORDER BY balance DESC LIMIT 5")
@@ -64,26 +64,35 @@ def index():
     </body>
     """, active=IS_ACTIVE, stats=players)
 
-# --- 🎯 ОБРАБОТЧИК ОШИБОК ---
-@dp.errors()
-async def error_handler(event: types.ErrorEvent):
-    logging.error(f"Critical error: {event.exception}")
-    try:
-        await event.update.callback_query.message.answer(MAINTENANCE_MSG)
-    except:
-        await bot.send_message(event.update.message.chat.id, MAINTENANCE_MSG)
-
-# --- 🚀 ОСНОВНЫЕ ХЕНДЛЕРЫ (Логика сохранена) ---
+# --- 🎯 ИСПРАВЛЕННЫЙ ХЕНДЛЕР /MONOPOLY ---
 @dp.message(Command("monopoly"))
 async def cmd_monopoly(message: types.Message):
     if not IS_ACTIVE:
         return await message.answer(MAINTENANCE_MSG)
+    
     init_db()
     kb = InlineKeyboardBuilder()
     kb.button(text="🎲 Сбор игроков", callback_data="start_lobby")
+    kb.button(text="👨‍💻 О девелопере", callback_data="dev_info")
     kb.button(text="❌ Скрыть", callback_data="hide_menu")
     kb.adjust(1)
-    await message.answer_photo(photo=MONOPOLY_IMG, caption=f"{BANNER}\n\nПогнали?", reply_markup=kb.as_markup())
+    
+    caption_text = f"{BANNER}\n\n🎭 Добро пожаловать!\n\n{await ai_say('Приветствие участников')}"
+    
+    try:
+        # Пытаемся отправить фото
+        await message.answer_photo(photo=MONOPOLY_IMG, caption=caption_text, reply_markup=kb.as_markup())
+    except Exception as e:
+        # Если фото выдает ошибку "wrong type", отправляем просто текст, чтобы бот не "лег"
+        logging.error(f"Photo send error: {e}")
+        await message.answer(caption_text, reply_markup=kb.as_markup())
+
+# --- 🎯 ХЕНДЛЕРЫ ЛОББИ И ИГРЫ (ЛОГИКА СОХРАНЕНА) ---
+@dp.callback_query(F.data == "dev_info")
+async def call_dev(call: types.CallbackQuery):
+    info = f"{DEV_TAG} — создатель бота*, по всем вопросам в личку.\n\n* Бот создан только для чата SHIT DAILY"
+    await call.message.answer(info)
+    await call.answer()
 
 @dp.callback_query(F.data == "hide_menu")
 async def hide(call: types.CallbackQuery):
@@ -94,14 +103,19 @@ async def lobby(call: types.CallbackQuery):
     cid, uid = call.message.chat.id, call.from_user.id
     db_query("INSERT OR IGNORE INTO game_state (chat_id, organizer_id, status) VALUES (?, ?, 'lobby')", (cid, uid))
     players = db_query("SELECT name FROM players WHERE chat_id=?", (cid,))
-    players_list = "\n".join([f"👤 {p[0]}" for p in players]) or "Ждем..."
+    players_list = "\n".join([f"👤 {p[0]}" for p in players]) or "Ждем игроков..."
     
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Вступить", callback_data="join_game")
-    if len(players) >= 2: kb.button(text="▶️ Начать", callback_data="go_active")
+    if len(players) >= 2: kb.button(text="▶️ Начать игру", callback_data="go_active")
     kb.button(text="❌ Скрыть", callback_data="hide_menu")
     kb.adjust(2, 1)
-    await call.message.edit_caption(caption=f"{BANNER}\n\n**ЛОББИ:**\n{players_list}", reply_markup=kb.as_markup())
+    
+    text = f"{BANNER}\n\n**ЛОББИ:**\n{players_list}"
+    try:
+        await call.message.edit_caption(caption=text, reply_markup=kb.as_markup())
+    except:
+        await call.message.edit_text(text=text, reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "join_game")
 async def join(call: types.CallbackQuery):
