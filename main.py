@@ -12,16 +12,25 @@ TOKEN = os.getenv("BOT_TOKEN")
 DEV_TAG = "@Whylovely05"
 PORT = int(os.environ.get("PORT", 8083))
 IS_ACTIVE = True 
-MAINTENANCE_MSG = "Бот обновляется или сломался, простите за неудобства, Темный принц уже исправляет это ♥️♥️"
 BANNER = "┏━━━━━━━━━━━━━━━━━━┓\n┃  Monopoly for SHIT DAILY  ┃\n┗━━━━━━━━━━━━━━━━━━┛"
 MONOPOLY_IMG = "https://files.catbox.moe/o2809u.jpg"
-RULES_TEXT = "📜 **ПРАВИЛА ИГРЫ:**\n1. Каждый игрок стартует с $1500.\n2. Цель — обанкротить соперников.\n3. Попадание в тюрьму пропускает 3 хода.\n4. Только для чата SHIT DAILY!"
+
+# Текст правил
+RULES_TEXT = (
+    "📜 **ПРАВИЛА ИГРЫ Monopoly for SHIT DAILY:**\n\n"
+    "1. Стартовый капитал: **$1500**.\n"
+    "2. Бросайте кубик и передвигайтесь по полю.\n"
+    "3. Покупайте улицы, чтобы брать аренду с других игроков.\n"
+    "4. Клетка '30' отправляет тебя в **Тюрьму** на 3 хода.\n"
+    "5. Если баланс < 0 — ты банкрот.\n"
+    "6. Игра идет до последнего выжившего богача!"
+)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
-# --- 🗄️ БАЗА ДАННЫХ ---
+# --- 🗄️ БАЗА ДАННЫХ (ЛОГИКА СОХРАНЕНА) ---
 def db_query(sql, params=()):
     try:
         with sqlite3.connect('monopoly_final.db', check_same_thread=False) as conn:
@@ -39,19 +48,9 @@ def init_db():
     db_query('''CREATE TABLE IF NOT EXISTS game_state 
         (chat_id int PRIMARY KEY, current_turn_idx int DEFAULT 0, organizer_id int, status text DEFAULT 'lobby')''')
 
-# --- 🧠 ИИ-ВЕДУЩИЙ ---
-async def ai_say(text):
-    try:
-        url = "https://text.pollinations.ai/"
-        prompt = f"Ты ведущий Monopoly for SHIT DAILY от {DEV_TAG}. Ответь кратко и дерзко: {text}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{url}{prompt}", timeout=5) as r:
-                return await r.text() if r.status == 200 else "Твой ход!"
-    except: return "Бро в деле! ✨"
-
 # --- ⌨️ КЛАВИАТУРЫ ---
 
-# 1. Нижние кнопки (Reply)
+# 1. Reply-кнопки (Вместо клавиатуры)
 def get_reply_game_kb():
     kb = ReplyKeyboardBuilder()
     kb.button(text="🎲 Бросить кубик")
@@ -61,7 +60,7 @@ def get_reply_game_kb():
     kb.adjust(2, 2)
     return kb.as_markup(resize_keyboard=True)
 
-# 2. Кнопки в чате (Inline)
+# 2. Inline-кнопки (В чате)
 def get_inline_game_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="🎲 Бросить кубик", callback_data="roll_dice")
@@ -75,19 +74,17 @@ def get_inline_game_kb():
 
 @dp.message(Command("monopoly"))
 async def cmd_monopoly(message: types.Message):
-    if not IS_ACTIVE: return await message.answer(MAINTENANCE_MSG)
     init_db()
     kb = InlineKeyboardBuilder()
     kb.button(text="🎲 Сбор игроков", callback_data="start_lobby")
-    kb.button(text="📜 Правила", callback_data="show_rules") # ВЕРНУЛ КНОПКУ
+    kb.button(text="📜 Правила", callback_data="show_rules") # ВОТ ОНА!
     kb.button(text="👨‍💻 О девелопере", callback_data="dev_info")
     kb.adjust(1)
     
-    caption = f"{BANNER}\n\n🎭 Добро пожаловать!\n{await ai_say('приветствие')}"
     try:
-        await message.answer_photo(photo=MONOPOLY_IMG, caption=caption, reply_markup=kb.as_markup())
+        await message.answer_photo(photo=MONOPOLY_IMG, caption=f"{BANNER}\n\nГотовы к игре?", reply_markup=kb.as_markup())
     except:
-        await message.answer(caption, reply_markup=kb.as_markup())
+        await message.answer(f"{BANNER}\n\nГотовы к игре?", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "show_rules")
 async def call_rules(call: types.CallbackQuery):
@@ -103,55 +100,43 @@ async def lobby(call: types.CallbackQuery):
     
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Вступить", callback_data="join_game")
-    if len(players) >= 2:
-        kb.button(text="▶️ Начать игру", callback_data="go_active")
+    if len(players) >= 2: kb.button(text="▶️ Начать игру", callback_data="go_active")
     
     await call.message.edit_caption(caption=f"{BANNER}\n\n**ЛОББИ:**\n{players_list}", reply_markup=kb.as_markup())
-
-@dp.callback_query(F.data == "join_game")
-async def join(call: types.CallbackQuery):
-    db_query("INSERT OR IGNORE INTO players (chat_id, user_id, name, balance, pos, jail) VALUES (?, ?, ?, 1500, 0, 0)", 
-             (call.message.chat.id, call.from_user.id, call.from_user.first_name))
-    await lobby(call)
 
 @dp.callback_query(F.data == "go_active")
 async def start_game(call: types.CallbackQuery):
     db_query("UPDATE game_state SET status='active' WHERE chat_id=?", (call.message.chat.id,))
-    await call.message.answer(f"🎉 Игра началась! Кнопки теперь внизу.", reply_markup=get_reply_game_kb())
+    await call.message.answer("🎉 Игра началась! Кнопки появились снизу.", reply_markup=get_reply_game_kb())
     await call.message.delete()
 
-# --- ЛОГИКА МЕНЮ ---
+# --- ЛОГИКА МЕНЮ (СКРЫТЬ/ВЕРНУТЬ) ---
 
 @dp.message(F.text == "❌ Скрыть меню")
 async def hide_menu(message: types.Message):
-    await message.answer("Клавиатура скрыта. Управление в чате 👇", reply_markup=ReplyKeyboardRemove())
-    await message.answer("🕹️ Меню игры:", reply_markup=get_inline_game_kb())
+    await message.answer("Клавиатура скрыта. Управление перенесено в чат.", reply_markup=ReplyKeyboardRemove())
+    await message.answer("🕹️ Меню управления:", reply_markup=get_inline_game_kb())
 
 @dp.callback_query(F.data == "restore_reply_menu")
 async def restore_menu(call: types.CallbackQuery):
     await call.message.delete()
-    await call.message.answer("✅ Меню вернулось вниз!", reply_markup=get_reply_game_kb())
+    await call.message.answer("✅ Меню возвращено вниз!", reply_markup=get_reply_game_kb())
     await call.answer()
 
-# --- ИГРОВЫЕ ДЕЙСТВИЯ (ОБЪЕДИНЕНЫ ДЛЯ ТЕКСТА И КНОПОК) ---
+# --- ИГРОВАЯ ЛОГИКА ---
 
 @dp.message(F.text == "🎲 Бросить кубик")
 @dp.callback_query(F.data == "roll_dice")
-async def roll_action(event):
+async def roll_dice(event):
     msg = event if isinstance(event, types.Message) else event.message
     dice = await msg.answer_dice("🎲")
     await asyncio.sleep(3.5)
-    await msg.answer(f"Выпало {dice.dice.value}! Ход записан.")
+    await msg.answer(f"Результат: {dice.dice.value}!")
     if isinstance(event, types.CallbackQuery): await event.answer()
 
-@dp.callback_query(F.data == "dev_info")
-async def dev_info(call: types.CallbackQuery):
-    await call.message.answer(f"{DEV_TAG} — создатель бота*\n\n* Только для SHIT DAILY")
-    await call.answer()
-
-# --- СЕРВЕР ---
+# --- ЗАПУСК ---
 @app.route('/')
-def index(): return "MONOPOLY IS LIVE", 200
+def index(): return "MONOPOLY LIVE", 200
 
 def run_flask(): app.run(host="0.0.0.0", port=PORT)
 
