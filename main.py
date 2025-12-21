@@ -12,28 +12,71 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types import ReplyKeyboardRemove, URLInputFile, WebAppInfo
 
-# --- [КОНФИГУРАЦИЯ] ---
+# --- [1] НАСТРОЙКИ И ПЕРЕМЕННЫЕ ---
 API_TOKEN = os.environ.get("BOT_TOKEN")
+if not API_TOKEN:
+    logging.error("❌ BOT_TOKEN не найден в переменных окружения!")
+    exit(1)
+
 PORT = int(os.environ.get("PORT", 8083))
 DEV_TAG = "@Whylovely05"
+IS_ACTIVE = True
+MAINTENANCE_MSG = "Бот обновляется, Темный принц уже исправляет это ♥️♥️"
 BANNER = "┏━━━━━━━━━━━━━━━━━━┓\n┃  Monopoly Premium Edition  ┃\n┗━━━━━━━━━━━━━━━━━━┛"
 MONOPOLY_IMG = "https://files.catbox.moe/o2809u.jpg"
 
+# Статистика для сайта
 STATS = {
-    "active_games": 0, "total_players": 0,
+    "active_games": 0,
+    "total_players": 0,
     "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    "version": "Premium v2.0 + AI Full Logic"
+    "version": "Premium v2.0"
 }
 
+# Хранилище ожидающих игр и активных игр
 WAITING_GAMES = {}
 ACTIVE_GAMES = {}
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+logger.info("🚀 Запуск Monopoly Premium бота...")
+
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
+
+# --- [2] FLASK СЕРВЕР И ШАБЛОН ---
 app = Flask(__name__)
 
-# --- [ПОЛНЫЙ HTML САЙТА - 100+ СТРОК СТИЛЕЙ] ---
+@app.route('/')
+def index():
+    stats_copy = STATS.copy()
+    stats_copy["active_games"] = len(ACTIVE_GAMES)
+    stats_copy["waiting_games"] = len(WAITING_GAMES)
+    bot_name = "Monopoly Premium"
+    
+    return render_template('status.html', 
+                         stats=stats_copy,
+                         bot_name=bot_name,
+                         domain=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost:' + str(PORT))}",
+                         port=PORT,
+                         start_time=stats_copy["started"],
+                         dev_tag=DEV_TAG)
+
+@app.route('/stats')
+def stats_api():
+    stats_copy = STATS.copy()
+    stats_copy["active_games"] = len(ACTIVE_GAMES)
+    stats_copy["waiting_games"] = len(WAITING_GAMES)
+    return json.dumps(stats_copy, ensure_ascii=False)
+
+@app.route('/health')
+def health():
+    return {"status": "ok", "bot": "running", "active_games": len(ACTIVE_GAMES)}, 200
+
+if not os.path.exists('templates'):
+    os.makedirs('templates')
+
 status_html = '''<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -60,202 +103,337 @@ status_html = '''<!DOCTYPE html>
         .steps { list-style-type: none; counter-reset: step; }
         .steps li { margin: 15px 0; padding-left: 30px; position: relative; line-height: 1.6; }
         .steps li:before { content: counter(step); counter-increment: step; position: absolute; left: 0; top: 0; background: #00ff88; color: #000; width: 24px; height: 24px; border-radius: 50%; text-align: center; line-height: 24px; font-weight: bold; }
+        .log-button { display: inline-block; background: linear-gradient(90deg, #ff0088, #ff5500); color: white; padding: 12px 25px; border-radius: 10px; text-decoration: none; font-weight: bold; margin-top: 15px; transition: all 0.3s; border: none; cursor: pointer; }
+        .log-button:hover { transform: scale(1.05); box-shadow: 0 5px 15px rgba(255, 0, 136, 0.3); }
         .footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.1); color: #888; font-size: 0.9rem; }
-        .btn-link { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #00ff88; color: #000; text-decoration: none; border-radius: 5px; font-weight: bold; }
+        .uptime { display: inline-block; background: rgba(0, 255, 136, 0.1); padding: 5px 15px; border-radius: 20px; margin-top: 10px; color: #00ff88; font-weight: 500; }
+        @media (max-width: 768px) { .container { padding: 15px; } .header h1 { font-size: 2rem; } .status-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header"><h1>МОНОПОЛИЯ ПРЕМИУМ</h1><h2>Система управления ботом</h2></div>
+        <div class="header">
+            <h1>МОНОПОЛИЯ ПРЕМИУМ</h1>
+            <h2>Telegram Bot для игры в группах</h2>
+        </div>
+        
         <div class="status-grid">
             <div class="status-card">
-                <div class="card-title">📊 Статистика</div>
+                <div class="card-title">📊 Статус системы</div>
                 <div class="info-line"><span class="label">Бот:</span><span class="value online">🟢 Онлайн</span></div>
-                <div class="info-line"><span class="label">Игр запущено:</span><span class="value">{{ stats.active_games }}</span></div>
-                <div class="info-line"><span class="label">Игроков в очереди:</span><span class="value">{{ stats.waiting_games }}</span></div>
+                <div class="info-line"><span class="label">Активных игр:</span><span class="value">{{ stats.active_games }}</span></div>
+                <div class="info-line"><span class="label">Ожидающих игр:</span><span class="value">{{ stats.waiting_games }}</span></div>
+                <div class="info-line"><span class="label">Всего игроков:</span><span class="value">{{ stats.total_players }}</span></div>
             </div>
+            
             <div class="status-card">
-                <div class="card-title">⚙️ Сервер</div>
+                <div class="card-title">⚙️ Стандарт</div>
+                <div class="info-line"><span class="label">Запущен:</span><span class="value">{{ start_time }}</span></div>
                 <div class="info-line"><span class="label">Версия:</span><span class="value">{{ stats.version }}</span></div>
-                <div class="info-line"><span class="label">Запуск:</span><span class="value">{{ start_time }}</span></div>
                 <div class="info-line"><span class="label">Порт:</span><span class="value">{{ port }}</span></div>
+                <div class="info-line"><span class="label">Домен:</span><span class="value">{{ domain }}</span></div>
+            </div>
+            
+            <div class="status-card">
+                <div class="card-title">👥 Проектор</div>
+                <div class="info-line"><span class="label">2024.12.18 17:56:19</span><span class="value"></span></div>
+                <div class="info-line"><span class="label">Ramder Mushirook</span><span class="value"></span></div>
+                <div class="info-line"><span class="label">Разработчик:</span><span class="value">{{ dev_tag }}</span></div>
             </div>
         </div>
+        
         <div class="instructions">
-            <h3>🛠 Панель Разработчика</h3>
-            <p>Управление базой данных и игровыми сессиями активно. Мониторинг логов включен.</p>
-            <a href="https://t.me/Whylovely05" class="btn-link">Связаться с разработчиком</a>
+            <h3>📋 Инструкция по использованию</h3>
+            <ol class="steps">
+                <li>Добавьте бота <strong>{{ bot_name }}</strong> в Telegram группу как администратора</li>
+                <li>Напишите в группе команду <code>/monopoly</code></li>
+                <li>Нажмите "Начать сбор игроков" и дождитесь участников</li>
+                <li>Когда все готовы, создатель игры нажимает "Начать игру"</li>
+                <li>Используйте кнопки "🎲 Бросить кубик" для хода</li>
+                <li>В любой момент можно скрыть меню командой <code>/hide</code></li>
+            </ol>
+            
+            <button class="log-button" onclick="location.reload()">🔄 Обновить статус</button>
+            <a href="/stats" class="log-button" style="margin-left: 10px;">📊 API Статистики</a>
         </div>
-        <div class="footer"><p>Created by {{ dev_tag }} &copy; 2025</p></div>
+        
+        <div class="footer">
+            <p>Система мониторинга Monopoly Premium Bot</p>
+            <div class="uptime">⏱ Uptime: {{ stats.started }}</div>
+            <p style="margin-top: 15px;">🔧 При возникновении проблем используйте команду /hide для сброса меню</p>
+        </div>
     </div>
+    
+    <script>
+        setInterval(() => {
+            fetch('/health').then(response => response.json()).then(data => {
+                if (data.status === 'ok') console.log('Bot is healthy');
+            }).catch(err => console.log('Health check failed:', err));
+        }, 30000);
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.status-card');
+            cards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                setTimeout(() => {
+                    card.style.transition = 'opacity 0.5s, transform 0.5s';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
 </body>
 </html>'''
 
-if not os.path.exists('templates'): os.makedirs('templates')
-with open('templates/status.html', 'w', encoding='utf-8') as f: f.write(status_html)
+with open('templates/status.html', 'w', encoding='utf-8') as f:
+    f.write(status_html)
 
-@app.route('/')
-def index():
-    return render_template('status.html', stats=STATS, dev_tag=DEV_TAG, port=PORT, start_time=STATS["started"])
-
-# --- [БАЗА ДАННЫХ] ---
-async def init_db():
-    async with aiosqlite.connect('monopoly_v2.db') as db:
-        await db.execute("""CREATE TABLE IF NOT EXISTS players (
-            chat_id int, user_id int, name text, balance int DEFAULT 1500, 
-            pos int DEFAULT 0, jail int DEFAULT 0, PRIMARY KEY(chat_id, user_id))""")
-        await db.execute("""CREATE TABLE IF NOT EXISTS property (
-            chat_id int, cell_idx int, owner_id int, houses int DEFAULT 0, 
-            PRIMARY KEY(chat_id, cell_idx))""")
-        await db.commit()
-
-# --- [3] ПОЛНАЯ ИГРОВАЯ КАРТА (ВСЕ 40 КЛЕТОК) ---
-# Структура: [Название, Цена покупки, Базовая аренда, Категория]
+# --- [3] ИГРОВАЯ ДАТА-БАЗА ---
 BOARD = {
-    0: ["СТАРТ", 0, 0, "SPECIAL"],
-    1: ["Житная", 60, 4, "BROWN"],
-    2: ["Общественная казна", 0, 0, "SPECIAL"],
-    3: ["Нагатинская", 60, 4, "BROWN"],
-    4: ["Подоходный налог", 0, 200, "TAX"],
-    5: ["Рижская ж/д", 200, 25, "RAIL"],
-    6: ["Варшавское ш.", 100, 6, "BLUE"],
-    7: ["Шанс", 0, 0, "CHANCE"],
-    8: ["Огородный пр.", 100, 6, "BLUE"],
-    9: ["Рижская", 120, 8, "BLUE"],
-    10: ["Тюрьма (Посещение)", 0, 0, "SPECIAL"],
-    11: ["Курская", 140, 10, "PINK"],
-    12: ["Электросеть", 150, 10, "UTIL"],
-    13: ["Абрамцево", 140, 10, "PINK"],
-    14: ["Пантелеевская", 160, 12, "PINK"],
-    15: ["Казанская ж/д", 200, 25, "RAIL"],
-    16: ["Вавилова", 180, 14, "ORANGE"],
-    17: ["Общественная казна", 0, 0, "SPECIAL"],
-    18: ["Тимирязевская", 180, 14, "ORANGE"],
-    19: ["Лихоборы", 200, 16, "ORANGE"],
-    20: ["Бесплатная стоянка", 0, 0, "SPECIAL"],
-    21: ["Арбат", 220, 18, "RED"],
-    22: ["Шанс", 0, 0, "CHANCE"],
-    23: ["Полянка", 220, 18, "RED"],
-    24: ["Сретенка", 240, 20, "RED"],
-    25: ["Курская ж/д", 200, 25, "RAIL"],
-    26: ["Ростовская", 260, 22, "YELLOW"],
-    27: ["Рязанский пр.", 260, 22, "YELLOW"],
-    28: ["Водопровод", 150, 10, "UTIL"],
-    29: ["Новинский б-р", 280, 24, "YELLOW"],
-    30: ["В ТЮРЬМУ", 0, 0, "SPECIAL"],
-    31: ["Пушкинская", 300, 26, "GREEN"],
-    32: ["Тверская", 300, 26, "GREEN"],
-    33: ["Общественная казна", 0, 0, "SPECIAL"],
-    34: ["Маяковского", 320, 28, "GREEN"],
-    35: ["Ленинградская ж/д", 200, 25, "RAIL"],
-    36: ["Шанс", 0, 0, "CHANCE"],
-    37: ["Кутузовский", 350, 35, "DARKBLUE"],
-    38: ["Сверхналог", 0, 100, "TAX"],
-    39: ["Бродвей", 400, 50, "DARKBLUE"]
+    1: ["Житная", 60, 4, "BROWN"], 3: ["Нагатинская", 60, 4, "BROWN"],
+    5: ["Рижская ж/д", 200, 25, "RAIL"], 6: ["Варшавское ш.", 100, 6, "BLUE"],
+    8: ["Огородный пр.", 100, 6, "BLUE"], 9: ["Рижская", 120, 8, "BLUE"],
+    11: ["Курская", 140, 10, "PINK"], 12: ["Электросеть", 150, 10, "UTIL"],
+    13: ["Абрамцево", 140, 10, "PINK"], 14: ["Пантелеевская", 160, 12, "PINK"],
+    15: ["Казанская ж/д", 200, 25, "RAIL"], 16: ["Вавилова", 180, 14, "ORANGE"],
+    18: ["Тимирязевская", 180, 14, "ORANGE"], 19: ["Лихоборы", 200, 16, "ORANGE"],
+    21: ["Арбат", 220, 18, "RED"], 23: ["Полянка", 220, 18, "RED"],
+    24: ["Сретенка", 240, 20, "RED"], 25: ["Курская ж/д", 200, 25, "RAIL"],
+    26: ["Ростовская", 260, 22, "YELLOW"], 27: ["Рязанский пр.", 260, 22, "YELLOW"],
+    28: ["Водопровод", 150, 10, "UTIL"], 29: ["Новинский б-р", 280, 24, "YELLOW"],
+    31: ["Пушкинская", 300, 26, "GREEN"], 32: ["Тверская", 300, 26, "GREEN"],
+    34: ["Маяковского", 320, 28, "GREEN"], 35: ["Ленинградская ж/д", 200, 25, "RAIL"],
+    37: ["Кутузовский", 350, 35, "DARKBLUE"], 39: ["Бродвей", 400, 50, "DARKBLUE"]
 }
 
-# --- [ИИ ФУНКЦИЯ КОММЕНТАРИЕВ] ---
-async def get_ai_response(event, player_name, balance=0):
-    responses = {
-        "start": [f"🚀 {player_name} врывается в игру! Начальный капитал в кармане."],
-        "tax": [f"📉 Упс, {player_name}! Налоги кусаются. Минус кэш."],
-        "buy": [f"🏠 Ого! {player_name} прикупил недвижимость. Будущий олигарх!"],
-        "jail": [f"⛓ {player_name}, Тюрьмыч тебя заждался. Отдыхай 3 хода."],
-        "roll": [f"🎲 {player_name} бросил кости. При балансе ${balance} это рискованно!"]
-    }
-    return random.choice(responses.get(event, ["Ход продолжается..."]))
-
-
-# --- [4] ОБРАБОТЧИКИ КОМАНД И ЛОББИ ---
-@dp.message(Command("monopoly"))
-async def cmd_monopoly(m: types.Message):
-    kb = InlineKeyboardBuilder().button(text="🎮 Сбор игроков", callback_data="gather").button(text="👨‍💻 Dev", callback_data="dev").adjust(1).as_markup()
-    await m.answer_photo(photo=URLInputFile(MONOPOLY_IMG), caption=f"{BANNER}\n\nДобро пожаловать!", reply_markup=kb)
-
-@dp.callback_query(F.data == "gather")
-async def gather_players(c: types.CallbackQuery):
-    cid = c.message.chat.id
-    if cid in WAITING_GAMES: return await c.answer("Сбор уже запущен!")
-    
-    WAITING_GAMES[cid] = {"creator": c.from_user.id, "players": [{"id": c.from_user.id, "name": c.from_user.first_name}]}
-    kb = InlineKeyboardBuilder().button(text="✅ Вступить", callback_data=f"join_{cid}").button(text="🚪 Выйти", callback_data=f"leave_{cid}").button(text="▶️ Старт", callback_data=f"start_{cid}").adjust(2, 1).as_markup()
-    await c.message.edit_caption(caption=f"🎮 <b>Сбор игроков!</b>\n\nУчастники: 1\nСоздатель: {c.from_user.first_name}", parse_mode="HTML", reply_markup=kb)
-
-@dp.callback_query(F.data.startswith("join_"))
-async def join_logic(c: types.CallbackQuery):
-    cid = int(c.data.split("_")[1])
-    game = WAITING_GAMES.get(cid)
-    if not game or any(p['id'] == c.from_user.id for p in game['players']): return await c.answer("Ошибка входа")
-    
-    game['players'].append({"id": c.from_user.id, "name": c.from_user.first_name})
-    await c.message.edit_caption(caption=f"🎮 <b>Сбор игроков!</b>\n\nУчастников: {len(game['players'])}", reply_markup=c.message.reply_markup)
-    await c.answer("Вы вступили!")
-
-@dp.callback_query(F.data.startswith("leave_"))
-async def leave_logic(c: types.CallbackQuery):
-    cid = int(c.data.split("_")[1])
-    game = WAITING_GAMES.get(cid)
-    if not game: return
-    game['players'] = [p for p in game['players'] if p['id'] != c.from_user.id]
-    if not game['players']: 
-        del WAITING_GAMES[cid]
-        return await c.message.edit_caption(caption="❌ Сбор отменен.")
-    await c.message.edit_caption(caption=f"🎮 <b>Сбор игроков!</b>\n\nУчастников: {len(game['players'])}", reply_markup=c.message.reply_markup)
-
-
-# --- [5] ИГРОВАЯ МЕХАНИКА И БРОСОК ---
-@dp.callback_query(F.data.startswith("start_"))
-async def start_game(c: types.CallbackQuery):
-    cid = int(c.data.split("_")[1])
-    game = WAITING_GAMES.get(cid)
-    if not game or c.from_user.id != game['creator']: return await c.answer("Только создатель!")
-    
-    async with aiosqlite.connect('monopoly_v2.db') as db:
-        for p in game['players']:
-            await db.execute("INSERT OR REPLACE INTO players (chat_id, user_id, name, balance, pos, jail) VALUES (?, ?, ?, 1500, 0, 0)", (cid, p['id'], p['name']))
-        await db.commit()
-    
-    ACTIVE_GAMES[cid] = game
-    del WAITING_GAMES[cid]
-    kb = ReplyKeyboardBuilder().button(text="🎲 Бросить кубик").button(text="📊 Статус").adjust(1).as_markup(resize_keyboard=True)
-    await c.message.answer("🚀 <b>Игра началась!</b>\nВсем выдано $1500. Первым ходит создатель.", parse_mode="HTML", reply_markup=kb)
-
-@dp.message(F.text == "🎲 Бросить кубик")
-async def roll_dice(m: types.Message):
-    async with aiosqlite.connect('monopoly_v2.db') as db:
-        res = await db.execute("SELECT pos, balance, jail FROM players WHERE chat_id=? AND user_id=?", (m.chat.id, m.from_user.id))
-        row = await res.fetchone()
-        if not row: return
-        
-        pos, bal, jail = row
-        if jail > 0:
-            await db.execute("UPDATE players SET jail = jail - 1 WHERE chat_id=? AND user_id=?", (m.chat.id, m.from_user.id))
+# --- [4] БАЗА ДАННЫХ ---
+async def init_db():
+    try:
+        async with aiosqlite.connect('monopoly_premium.db') as db:
+            await db.execute("""CREATE TABLE IF NOT EXISTS players (
+                chat_id int, user_id int, name text, 
+                balance int DEFAULT 1500, pos int DEFAULT 0, 
+                jail int DEFAULT 0, PRIMARY KEY(chat_id, user_id))""")
+            await db.execute("""CREATE TABLE IF NOT EXISTS property (
+                chat_id int, cell_idx int, owner_id int, houses int DEFAULT 0, 
+                PRIMARY KEY(chat_id, cell_idx))""")
+            await db.execute("CREATE TABLE IF NOT EXISTS awards (user_id int, title text, chat_id int)")
             await db.commit()
-            return await m.answer(await get_ai_response("jail", m.from_user.first_name))
+        logger.info("✅ База данных инициализирована")
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации БД: {e}")
 
-        await m.answer(await get_ai_response("roll", m.from_user.first_name, bal))
-        d = await m.answer_dice("🎲")
-        await asyncio.sleep(3.5)
+# --- [5] КЛАВИАТУРЫ ---
+def main_menu_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🎮 Начать сбор игроков", callback_data="start_player_gathering")
+    kb.button(text="📖 Правила игры", callback_data="show_rules")
+    kb.button(text="👨‍💻 О девелопере", callback_data="show_developer")
+    kb.button(text="🌐 Статус системы", web_app=WebAppInfo(url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost:' + str(PORT))}"))
+    kb.adjust(1)
+    return kb.as_markup()
+
+def waiting_room_kb(chat_id, user_id, is_creator=False):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🚪 Выйти из игры", callback_data=f"leave_game_{chat_id}")
+    if is_creator:
+        kb.button(text="▶️ Начать игру", callback_data=f"start_real_game_{chat_id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+def game_main_kb():
+    kb = ReplyKeyboardBuilder()
+    kb.button(text="🎲 Бросить кубик")
+    kb.button(text="🏠 Построить")
+    kb.button(text="📊 Мои активы")
+    kb.button(text="🤝 Торговля")
+    kb.button(text="❌ Скрыть меню")
+    kb.adjust(2, 2, 1)
+    return kb.as_markup(resize_keyboard=True)
+
+def hide_menu_kb():
+    kb = ReplyKeyboardBuilder()
+    kb.button(text="📱 Показать меню")
+    kb.adjust(1)
+    return kb.as_markup(resize_keyboard=True)
+
+# --- [6] КОМАНДЫ БОТА ---
+@dp.message(Command("monopoly"))
+async def cmd_monopoly(message: types.Message):
+    """Главная команда для запуска игры"""
+    try:
+        await message.answer(
+            f"{BANNER}\n\n🎲 <b>Monopoly Premium Edition</b>\n"
+            "Выберите действие:",
+            parse_mode="HTML",
+            reply_markup=main_menu_kb()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в cmd_monopoly: {e}")
+        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+
+@dp.message(Command("hide"))
+async def cmd_hide_menu(message: types.Message):
+    """Команда для скрытия меню"""
+    try:
+        await message.answer(
+            "✅ Меню скрыто. Чтобы вернуть меню, нажмите кнопку ниже или используйте /monopoly",
+            reply_markup=hide_menu_kb()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в cmd_hide: {e}")
+        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+
+@dp.message(F.text == "❌ Скрыть меню")
+async def hide_menu_button(message: types.Message):
+    """Обработка кнопки скрытия меню"""
+    try:
+        await message.answer(
+            "✅ Меню скрыто. Чтобы вернуть меню, нажмите кнопку ниже или используйте /monopoly",
+            reply_markup=hide_menu_kb()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в hide_menu_button: {e}")
+        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+
+@dp.message(F.text == "📱 Показать меню")
+async def show_menu_button(message: types.Message):
+    """Показ меню после скрытия"""
+    try:
+        await cmd_monopoly(message)
+    except Exception as e:
+        logger.error(f"Ошибка в show_menu_button: {e}")
+        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    """Команда /start"""
+    try:
+        await message.answer(
+            f"👋 Привет! Я бот для игры в Монополию!\n\n"
+            f"Используйте команду /monopoly чтобы начать игру в группе.\n"
+            f"Используйте /hide чтобы скрыть меню.\n\n"
+            f"Разработчик: {DEV_TAG}"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в cmd_start: {e}")
+        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+
+# --- [7] ОБРАБОТКА КНОПОК ---
+@dp.callback_query(F.data == "start_player_gathering")
+async def start_gathering(c: types.CallbackQuery):
+    """Начать сбор игроков"""
+    try:
+        chat_id = c.message.chat.id
+        user_id = c.from_user.id
         
-        new_pos = (pos + d.dice.value) % 40
-        if new_pos < pos: bal += 200 # Проход через Старт
+        if chat_id in WAITING_GAMES:
+            await c.answer("⚠️ В этой группе уже идет сбор игроков!", show_alert=True)
+            return
         
-        # Логика клетки "В ТЮРЬМУ" (30 поле)
-        if new_pos == 30: new_pos, jail = 10, 3
+        WAITING_GAMES[chat_id] = {
+            "creator_id": user_id,
+            "creator_name": c.from_user.first_name,
+            "players": [{"id": user_id, "name": c.from_user.first_name, "username": c.from_user.username}],
+            "message_id": c.message.message_id,
+            "created_at": datetime.now()
+        }
         
-        await db.execute("UPDATE players SET pos=?, balance=?, jail=? WHERE chat_id=? AND user_id=?", (new_pos, bal, jail, m.chat.id, m.from_user.id))
-        await db.commit()
+        STATS["active_games"] = len(ACTIVE_GAMES) + len(WAITING_GAMES)
         
-        cell = BOARD[new_pos]
-        await m.answer(f"📍 <b>{cell[0]}</b> (Поле {new_pos})\n💰 Баланс: ${bal}", parse_mode="HTML")
+        players_text = "👥 <b>Игроки в ожидании:</b>\n"
+        for player in WAITING_GAMES[chat_id]["players"]:
+            players_text += f"• {player['name']}"
+            if player.get('username'):
+                players_text += f" (@{player['username']})"
+            players_text += "\n"
+        
+        await c.message.edit_text(
+            f"🎮 <b>Сбор игроков начат!</b>\n"
+            f"Создатель: {c.from_user.first_name}\n\n"
+            f"{players_text}\n"
+            f"✅ Нажмите 'Присоединиться' чтобы войти в игру\n"
+            f"🚪 'Выйти из игры' - чтобы покинуть лобби\n"
+            f"▶️ Создатель может начать игру когда все готовы",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardBuilder()
+                .button(text="✅ Присоединиться", callback_data=f"join_game_{chat_id}")
+                .button(text="🚪 Выйти", callback_data=f"leave_game_{chat_id}")
+                .button(text="▶️ Начать игру", callback_data=f"start_real_game_{chat_id}")
+                .adjust(2, 1)
+                .as_markup()
+        )
+        
+        await c.answer("🎮 Сбор игроков начат!")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в start_gathering: {e}")
+        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
 
-# --- [6] ЗАПУСК ---
-async def main():
-    await init_db()
-    Thread(target=lambda: app.run(host="0.0.0.0", port=PORT), daemon=True).start()
-    await dp.start_polling(bot)
+@dp.callback_query(F.data.startswith("join_game_"))
+async def join_game(c: types.CallbackQuery):
+    """Присоединение к игре"""
+    try:
+        chat_id = int(c.data.split("_")[2])
+        
+        if chat_id not in WAITING_GAMES:
+            await c.answer("⚠️ Игра не найдена или уже началась", show_alert=True)
+            return
+        
+        game = WAITING_GAMES[chat_id]
+        user_id = c.from_user.id
+        
+        for player in game["players"]:
+            if player["id"] == user_id:
+                await c.answer("✅ Вы уже в игре!")
+                return
+        
+        game["players"].append({
+            "id": user_id,
+            "name": c.from_user.first_name,
+            "username": c.from_user.username
+        })
+        
+        players_text = "👥 <b>Игроки в ожидании:</b>\n"
+        for player in game["players"]:
+            players_text += f"• {player['name']}"
+            if player.get('username'):
+                players_text += f" (@{player['username']})"
+            players_text += "\n"
+        
+        await c.message.edit_text(
+            f"🎮 <b>Сбор игроков начат!</b>\n"
+            f"Создатель: {game['creator_name']}\n\n"
+            f"{players_text}\n"
+            f"✅ Нажмите 'Присоединиться' чтобы войти в игру\n"
+            f"🚪 'Выйти из игры' - чтобы покинуть лобби\n"
+            f"▶️ Создатель может начать игру когда все готовы",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardBuilder()
+                .button(text="✅ Присоединиться", callback_data=f"join_game_{chat_id}")
+                .button(text="🚪 Выйти", callback_data=f"leave_game_{chat_id}")
+                .button(text="▶️ Начать игру", callback_data=f"start_real_game_{chat_id}")
+                .adjust(2, 1)
+                .as_markup()
+        )
+        
+        await c.answer(f"🎮 Вы присоединились к игре! Игроков: {len(game['players'])}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в join_game: {e}")
+        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
 
-if __name__ == "__main__":
-    asyncio.run(main())
-
-
+@dp.callback_query(F.data.startswith("leave_game_"))
+async def leave_game(c: types.CallbackQuery):
+    """Выход из игры"""
+    try:
+        chat_id = int(c.data.split("_")[2])
+        
+        if chat_id not in WAITING_GAMES:
+            await c.answer("⚠️ Игра не найдена", show_alert=True)
+            return
+        
+        game = WAITING_GAMES[chat_id]
+   
