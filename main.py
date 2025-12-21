@@ -2,26 +2,20 @@ import os
 import asyncio
 import aiosqlite
 import logging
-import random
 import json
+import sys
 from datetime import datetime
 from threading import Thread
 from flask import Flask, render_template
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from aiogram.types import ReplyKeyboardRemove, URLInputFile, WebAppInfo
-import sys
 
-# --- [1] НАСТРОЙКИ И ПЕРЕМЕННЫЕ ---
+# --- НАСТРОЙКИ И ПЕРЕМЕННЫЕ ---
 API_TOKEN = os.environ.get("BOT_TOKEN")
 if not API_TOKEN:
     logging.error("❌ BOT_TOKEN не найден в переменных окружения!")
-    exit(1)
+    sys.exit(1)
 
 PORT = int(os.environ.get("PORT", 8083))
 DEV_TAG = "@Whylovely05"
-IS_ACTIVE = True
 MAINTENANCE_MSG = "Бот обновляется, Темный принц уже исправляет это ♥️♥️"
 BANNER = "┏━━━━━━━━━━━━━━━━━━┓\n┃  Monopoly Premium Edition  ┃\n┗━━━━━━━━━━━━━━━━━━┛"
 MONOPOLY_IMG = "https://files.catbox.moe/o2809u.jpg"
@@ -34,7 +28,7 @@ STATS = {
     "version": "Premium v2.0"
 }
 
-# Хранилища игр
+# Хранилища игр (временное решение)
 WAITING_GAMES = {}
 ACTIVE_GAMES = {}
 
@@ -42,119 +36,86 @@ ACTIVE_GAMES = {}
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
-# Инициализация бота и Flask
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
+# --- FLASK СЕРВЕР ---
 app = Flask(__name__)
 
-# --- [2] БАЗА ДАННЫХ ---
-async def init_db():
-    try:
-        async with aiosqlite.connect('monopoly_premium.db') as db:
-            await db.execute("""CREATE TABLE IF NOT EXISTS players (
-                chat_id int, user_id int, name text, 
-                balance int DEFAULT 1500, pos int DEFAULT 0, 
-                jail int DEFAULT 0, PRIMARY KEY(chat_id, user_id))""")
-            await db.execute("""CREATE TABLE IF NOT EXISTS property (
-                chat_id int, cell_idx int, owner_id int, houses int DEFAULT 0, 
-                PRIMARY KEY(chat_id, cell_idx))""")
-            await db.execute("CREATE TABLE IF NOT EXISTS awards (user_id int, title text, chat_id int)")
-            await db.commit()
-        logger.info("✅ База данных инициализирована")
-    except Exception as e:
-        logger.error(f"❌ Ошибка инициализации БД: {e}")
-
-# --- [3] ИГРОВАЯ ДОСКА ---
-BOARD = {
-    1: ["Житная", 60, 4, "BROWN"], 3: ["Нагатинская", 60, 4, "BROWN"],
-    5: ["Рижская ж/д", 200, 25, "RAIL"], 6: ["Варшавское ш.", 100, 6, "BLUE"],
-    8: ["Огородный пр.", 100, 6, "BLUE"], 9: ["Рижская", 120, 8, "BLUE"],
-    11: ["Курская", 140, 10, "PINK"], 12: ["Электросеть", 150, 10, "UTIL"],
-    13: ["Абрамцево", 140, 10, "PINK"], 14: ["Пантелеевская", 160, 12, "PINK"],
-    15: ["Казанская ж/д", 200, 25, "RAIL"], 16: ["Вавилова", 180, 14, "ORANGE"],
-    18: ["Тимирязевская", 180, 14, "ORANGE"], 19: ["Лихоборы", 200, 16, "ORANGE"],
-    21: ["Арбат", 220, 18, "RED"], 23: ["Полянка", 220, 18, "RED"],
-    24: ["Сретенка", 240, 20, "RED"], 25: ["Курская ж/д", 200, 25, "RAIL"],
-    26: ["Ростовская", 260, 22, "YELLOW"], 27: ["Рязанский пр.", 260, 22, "YELLOW"],
-    28: ["Водопровод", 150, 10, "UTIL"], 29: ["Новинский б-р", 280, 24, "YELLOW"],
-    31: ["Пушкинская", 300, 26, "GREEN"], 32: ["Тверская", 300, 26, "GREEN"],
-    34: ["Маяковского", 320, 28, "GREEN"], 35: ["Ленинградская ж/д", 200, 25, "RAIL"],
-    37: ["Кутузовский", 350, 35, "DARKBLUE"], 39: ["Бродвей", 400, 50, "DARKBLUE"]
-}
-
-# --- [4] КЛАВИАТУРЫ ---
-def main_menu_kb():
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🎮 Начать сбор игроков", callback_data="start_player_gathering")
-    kb.button(text="📖 Правила игры", callback_data="show_rules")
-    kb.button(text="👨‍💻 О девелопере", callback_data="show_developer")
-    kb.button(text="🌐 Статус системы", web_app=WebAppInfo(url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost:' + str(PORT))}"))
-    kb.adjust(1)
-    return kb.as_markup()
-
-def waiting_room_kb(chat_id, user_id, is_creator=False):
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Присоединиться", callback_data=f"join_game_{chat_id}")
-    kb.button(text="🚪 Выйти", callback_data=f"leave_game_{chat_id}")
-    if is_creator:
-        kb.button(text="▶️ Начать игру", callback_data=f"start_real_game_{chat_id}")
-    kb.adjust(2, 1)
-    return kb.as_markup()
-
-def game_main_kb():
-    kb = ReplyKeyboardBuilder()
-    kb.button(text="🎲 Бросить кубик")
-    kb.button(text="🏠 Построить")
-    kb.button(text="📊 Мои активы")
-    kb.button(text="🤝 Торговля")
-    kb.button(text="❌ Скрыть меню")
-    kb.adjust(2, 2, 1)
-    return kb.as_markup(resize_keyboard=True)
-
-def hide_menu_kb():
-    kb = ReplyKeyboardBuilder()
-    kb.button(text="📱 Показать меню")
-    kb.adjust(1)
-    return kb.as_markup(resize_keyboard=True)
-
-# --- [5] FLASK СЕРВЕР ---
 @app.route('/')
 def index():
+    """Главная страница статуса"""
     stats_copy = STATS.copy()
     stats_copy["active_games"] = len(ACTIVE_GAMES)
     stats_copy["waiting_games"] = len(WAITING_GAMES)
     bot_name = "Monopoly Premium"
     
+    # Получаем домен
+    external_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+    if external_hostname:
+        domain = f"https://{external_hostname}"
+    else:
+        domain = f"http://localhost:{PORT}"
+    
     return render_template('status.html', 
                          stats=stats_copy,
                          bot_name=bot_name,
-                         domain=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost:' + str(PORT))}",
+                         domain=domain,
                          port=PORT,
                          start_time=stats_copy["started"],
                          dev_tag=DEV_TAG)
 
 @app.route('/stats')
 def stats_api():
+    """API статистики в JSON формате"""
     stats_copy = STATS.copy()
     stats_copy["active_games"] = len(ACTIVE_GAMES)
     stats_copy["waiting_games"] = len(WAITING_GAMES)
-    return json.dumps(stats_copy, ensure_ascii=False)
+    return json.dumps(stats_copy, ensure_ascii=False, indent=2)
 
 @app.route('/health')
 def health():
-    return {"status": "ok", "bot": "running", "active_games": len(ACTIVE_GAMES)}, 200
+    """Проверка здоровья сервиса"""
+    return {
+        "status": "ok", 
+        "bot": "running", 
+        "active_games": len(ACTIVE_GAMES),
+        "waiting_games": len(WAITING_GAMES),
+        "timestamp": datetime.now().isoformat()
+    }, 200
+
+@app.route('/games')
+def games_list():
+    """Список активных и ожидающих игр"""
+    active = {}
+    for chat_id, game in ACTIVE_GAMES.items():
+        active[chat_id] = {
+            "started": game.get("started_at", datetime.now()).isoformat(),
+            "players": len(game.get("players", [])),
+            "creator": game.get("creator_name", "Unknown")
+        }
+    
+    waiting = {}
+    for chat_id, game in WAITING_GAMES.items():
+        waiting[chat_id] = {
+            "created": game.get("created_at", datetime.now()).isoformat(),
+            "players": len(game.get("players", [])),
+            "creator": game.get("creator_name", "Unknown")
+        }
+    
+    return {
+        "active_games": active,
+        "waiting_games": waiting,
+        "total_active": len(ACTIVE_GAMES),
+        "total_waiting": len(WAITING_GAMES)
+    }
 
 # Создаем папку templates если её нет
 if not os.path.exists('templates'):
     os.makedirs('templates')
 
-# Создаем HTML шаблон
+# HTML шаблон для статусной страницы
 status_html = '''<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -185,6 +146,9 @@ status_html = '''<!DOCTYPE html>
         .log-button:hover { transform: scale(1.05); box-shadow: 0 5px 15px rgba(255, 0, 136, 0.3); }
         .footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.1); color: #888; font-size: 0.9rem; }
         .uptime { display: inline-block; background: rgba(0, 255, 136, 0.1); padding: 5px 15px; border-radius: 20px; margin-top: 10px; color: #00ff88; font-weight: 500; }
+        .games-list { background: rgba(30, 30, 50, 0.6); border-radius: 10px; padding: 15px; margin-top: 10px; }
+        .game-item { padding: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        .game-item:last-child { border-bottom: none; }
         @media (max-width: 768px) { .container { padding: 15px; } .header h1 { font-size: 2rem; } .status-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -202,6 +166,10 @@ status_html = '''<!DOCTYPE html>
                 <div class="info-line"><span class="label">Активных игр:</span><span class="value">{{ stats.active_games }}</span></div>
                 <div class="info-line"><span class="label">Ожидающих игр:</span><span class="value">{{ stats.waiting_games }}</span></div>
                 <div class="info-line"><span class="label">Всего игроков:</span><span class="value">{{ stats.total_players }}</span></div>
+                <div class="games-list">
+                    <div class="game-item">Активные: {{ stats.active_games }}</div>
+                    <div class="game-item">В лобби: {{ stats.waiting_games }}</div>
+                </div>
             </div>
             
             <div class="status-card">
@@ -233,6 +201,8 @@ status_html = '''<!DOCTYPE html>
             
             <button class="log-button" onclick="location.reload()">🔄 Обновить статус</button>
             <a href="/stats" class="log-button" style="margin-left: 10px;">📊 API Статистики</a>
+            <a href="/health" class="log-button" style="margin-left: 10px;">❤️ Health Check</a>
+            <a href="/games" class="log-button" style="margin-left: 10px;">🎮 Список игр</a>
         </div>
         
         <div class="footer">
@@ -243,12 +213,28 @@ status_html = '''<!DOCTYPE html>
     </div>
     
     <script>
+        // Автоматическое обновление каждые 30 секунд
+        function updateStats() {
+            fetch('/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.querySelectorAll('.status-card')[0].querySelectorAll('.value')[1].textContent = data.active_games;
+                    document.querySelectorAll('.status-card')[0].querySelectorAll('.value')[2].textContent = data.waiting_games;
+                    document.querySelectorAll('.status-card')[0].querySelectorAll('.value')[3].textContent = data.total_players;
+                })
+                .catch(err => console.log('Ошибка обновления:', err));
+        }
+        
+        // Проверка здоровья
         setInterval(() => {
             fetch('/health').then(response => response.json()).then(data => {
-                if (data.status === 'ok') console.log('Bot is healthy');
+                if (data.status === 'ok') {
+                    console.log('✅ Bot is healthy at', new Date().toLocaleTimeString());
+                }
             }).catch(err => console.log('Health check failed:', err));
         }, 30000);
         
+        // Анимация при загрузке
         document.addEventListener('DOMContentLoaded', function() {
             const cards = document.querySelectorAll('.status-card');
             cards.forEach((card, index) => {
@@ -260,6 +246,12 @@ status_html = '''<!DOCTYPE html>
                     card.style.transform = 'translateY(0)';
                 }, index * 100);
             });
+            
+            // Первое обновление
+            setTimeout(updateStats, 1000);
+            
+            // Автообновление каждую минуту
+            setInterval(updateStats, 60000);
         });
     </script>
 </body>
@@ -269,179 +261,164 @@ status_html = '''<!DOCTYPE html>
 with open('templates/status.html', 'w', encoding='utf-8') as f:
     f.write(status_html)
 
-# --- [6] КОМАНДЫ БОТА ---
-@dp.message(Command("monopoly"))
-async def cmd_monopoly(message: types.Message):
-    """Главная команда для запуска игры"""
+# --- БАЗА ДАННЫХ ---
+async def init_db():
+    """Инициализация базы данных"""
     try:
-        await message.answer(
-            f"{BANNER}\n\n🎲 <b>Monopoly Premium Edition</b>\n"
-            "Выберите действие:",
-            parse_mode="HTML",
-            reply_markup=main_menu_kb()
-        )
+        async with aiosqlite.connect('monopoly_premium.db') as db:
+            # Таблица игроков
+            await db.execute("""CREATE TABLE IF NOT EXISTS players (
+                chat_id int, 
+                user_id int, 
+                name text, 
+                balance int DEFAULT 1500, 
+                pos int DEFAULT 0, 
+                jail int DEFAULT 0, 
+                PRIMARY KEY(chat_id, user_id)
+            )""")
+            
+            # Таблица собственности
+            await db.execute("""CREATE TABLE IF NOT EXISTS property (
+                chat_id int, 
+                cell_idx int, 
+                owner_id int, 
+                houses int DEFAULT 0, 
+                PRIMARY KEY(chat_id, cell_idx)
+            )""")
+            
+            # Таблица достижений
+            await db.execute("""CREATE TABLE IF NOT EXISTS awards (
+                user_id int, 
+                title text, 
+                chat_id int,
+                earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""")
+            
+            # Таблица истории игр
+            await db.execute("""CREATE TABLE IF NOT EXISTS game_history (
+                game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id int,
+                started_at TIMESTAMP,
+                finished_at TIMESTAMP,
+                winner_id int,
+                winner_name text,
+                players_count int,
+                duration_minutes int
+            )""")
+            
+            await db.commit()
+        logger.info("✅ База данных инициализирована")
     except Exception as e:
-        logger.error(f"Ошибка в cmd_monopoly: {e}")
-        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+        logger.error(f"❌ Ошибка инициализации БД: {e}")
 
-@dp.message(Command("hide"))
-async def cmd_hide_menu(message: types.Message):
-    """Команда для скрытия меню"""
-    try:
-        await message.answer(
-            "✅ Меню скрыто. Чтобы вернуть меню, нажмите кнопку ниже или используйте /monopoly",
-            reply_markup=hide_menu_kb()
-        )
-    except Exception as e:
-        logger.error(f"Ошибка в cmd_hide: {e}")
-        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+# --- ИГРОВАЯ ДОСКА ---
+BOARD = {
+    1: ["Житная", 60, 4, "BROWN"],
+    3: ["Нагатинская", 60, 4, "BROWN"],
+    5: ["Рижская ж/д", 200, 25, "RAIL"],
+    6: ["Варшавское ш.", 100, 6, "BLUE"],
+    8: ["Огородный пр.", 100, 6, "BLUE"],
+    9: ["Рижская", 120, 8, "BLUE"],
+    11: ["Курская", 140, 10, "PINK"],
+    12: ["Электросеть", 150, 10, "UTIL"],
+    13: ["Абрамцево", 140, 10, "PINK"],
+    14: ["Пантелеевская", 160, 12, "PINK"],
+    15: ["Казанская ж/д", 200, 25, "RAIL"],
+    16: ["Вавилова", 180, 14, "ORANGE"],
+    18: ["Тимирязевская", 180, 14, "ORANGE"],
+    19: ["Лихоборы", 200, 16, "ORANGE"],
+    21: ["Арбат", 220, 18, "RED"],
+    23: ["Полянка", 220, 18, "RED"],
+    24: ["Сретенка", 240, 20, "RED"],
+    25: ["Курская ж/д", 200, 25, "RAIL"],
+    26: ["Ростовская", 260, 22, "YELLOW"],
+    27: ["Рязанский пр.", 260, 22, "YELLOW"],
+    28: ["Водопровод", 150, 10, "UTIL"],
+    29: ["Новинский б-р", 280, 24, "YELLOW"],
+    31: ["Пушкинская", 300, 26, "GREEN"],
+    32: ["Тверская", 300, 26, "GREEN"],
+    34: ["Маяковского", 320, 28, "GREEN"],
+    35: ["Ленинградская ж/д", 200, 25, "RAIL"],
+    37: ["Кутузовский", 350, 35, "DARKBLUE"],
+    39: ["Бродвей", 400, 50, "DARKBLUE"]
+}
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    """Команда /start"""
-    try:
-        await message.answer(
-            f"👋 Привет! Я бот для игры в Монополию!\n\n"
-            f"Используйте команду /monopoly чтобы начать игру в группе.\n"
-            f"Используйте /hide чтобы скрыть меню.\n\n"
-            f"Разработчик: {DEV_TAG}"
-        )
-    except Exception as e:
-        logger.error(f"Ошибка в cmd_start: {e}")
-        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+# Специальные клетки
+SPECIAL_CELLS = {
+    0: ["СТАРТ", "Получите 200$ при прохождении"],
+    2: ["КАЗНА", "Вытяните карту казны"],
+    4: ["ПОДОХОДНЫЙ НАЛОГ", "Заплатите 200$"],
+    7: ["ШАНС", "Вытяните карту шанса"],
+    10: ["ТЮРЬМА", "Просто посещение"],
+    17: ["КАЗНА", "Вытяните карту казны"],
+    20: ["БЕСПЛАТНАЯ ПАРКОВКА", "Бесплатный отдых"],
+    22: ["ШАНС", "Вытяните карту шанса"],
+    30: ["ОТПРАВЛЯЙТЕСЬ В ТЮРЬМУ", "Прямо в тюрьму!"],
+    33: ["КАЗНА", "Вытяните карту казны"],
+    36: ["ШАНС", "Вытяните карту шанса"],
+    38: ["СУПЕРНАЛОГ", "Заплатите 100$"]
+}
 
-# --- [7] ОБРАБОТКА КНОПОК ---
-@dp.callback_query(F.data == "start_player_gathering")
-async def start_gathering(c: types.CallbackQuery):
-    """Начать сбор игроков"""
-    try:
-        chat_id = c.message.chat.id
-        user_id = c.from_user.id
-        
-        if chat_id in WAITING_GAMES:
-            await c.answer("⚠️ В этой группе уже идет сбор игроков!", show_alert=True)
-            return
-        
-        WAITING_GAMES[chat_id] = {
-            "creator_id": user_id,
-            "creator_name": c.from_user.first_name,
-            "players": [{"id": user_id, "name": c.from_user.first_name, "username": c.from_user.username}],
-            "message_id": c.message.message_id,
-            "created_at": datetime.now()
+def get_cell_info(cell_index):
+    """Получить информацию о клетке"""
+    if cell_index in BOARD:
+        name, price, rent, color = BOARD[cell_index]
+        return {
+            "name": name,
+            "price": price,
+            "rent": rent,
+            "color": color,
+            "type": "property"
         }
-        
-        STATS["active_games"] = len(ACTIVE_GAMES) + len(WAITING_GAMES)
-        
-        players_text = "👥 <b>Игроки в ожидании:</b>\n"
-        for player in WAITING_GAMES[chat_id]["players"]:
-            players_text += f"• {player['name']}"
-            if player.get('username'):
-                players_text += f" (@{player['username']})"
-            players_text += "\n"
-        
-        await c.message.edit_text(
-            f"🎮 <b>Сбор игроков начат!</b>\n"
-            f"Создатель: {c.from_user.first_name}\n\n"
-            f"{players_text}\n"
-            f"✅ Нажмите 'Присоединиться' чтобы войти в игру\n"
-            f"🚪 'Выйти из игры' - чтобы покинуть лобби\n"
-            f"▶️ Создатель может начать игру когда все готовы",
-            parse_mode="HTML",
-            reply_markup=waiting_room_kb(chat_id, user_id, is_creator=True)
-        )
-        
-        await c.answer("🎮 Сбор игроков начат!")
-        
-    except Exception as e:
-        logger.error(f"Ошибка в start_gathering: {e}")
-        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
+    elif cell_index in SPECIAL_CELLS:
+        name, description = SPECIAL_CELLS[cell_index]
+        return {
+            "name": name,
+            "description": description,
+            "type": "special"
+        }
+    else:
+        return {
+            "name": f"Клетка {cell_index}",
+            "type": "empty"
+        }
 
-@dp.callback_query(F.data.startswith("join_game_"))
-async def join_game(c: types.CallbackQuery):
-    """Присоединение к игре"""
-    try:
-        chat_id = int(c.data.split("_")[2])
-        
-        if chat_id not in WAITING_GAMES:
-            await c.answer("⚠️ Игра не найдена или уже началась", show_alert=True)
-            return
-        
-        game = WAITING_GAMES[chat_id]
-        user_id = c.from_user.id
-        
-        for player in game["players"]:
-            if player["id"] == user_id:
-                await c.answer("✅ Вы уже в игре!")
-                return
-        
-        game["players"].append({
-            "id": user_id,
-            "name": c.from_user.first_name,
-            "username": c.from_user.username
-        })
-        
-        players_text = "👥 <b>Игроки в ожидании:</b>\n"
-        for player in game["players"]:
-            players_text += f"• {player['name']}"
-            if player.get('username'):
-                players_text += f" (@{player['username']})"
-            players_text += "\n"
-        
-        is_creator = (user_id == game["creator_id"])
-        
-        await c.message.edit_text(
-            f"🎮 <b>Сбор игроков начат!</b>\n"
-            f"Создатель: {game['creator_name']}\n\n"
-            f"{players_text}\n"
-            f"✅ Нажмите 'Присоединиться' чтобы войти в игру\n"
-            f"🚪 'Выйти из игры' - чтобы покинуть лобби\n"
-            f"▶️ Создатель может начать игру когда все готовы",
-            parse_mode="HTML",
-            reply_markup=waiting_room_kb(chat_id, user_id, is_creator=is_creator)
-        )
-        
-        await c.answer(f"🎮 Вы присоединились к игре! Игроков: {len(game['players'])}")
-        
-    except Exception as e:
-        logger.error(f"Ошибка в join_game: {e}")
-        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
+def calculate_rent(cell_index, houses=0, is_monopoly=False):
+    """Рассчитать арендную плату"""
+    if cell_index not in BOARD:
+        return 0
+    
+    _, base_price, base_rent, color = BOARD[cell_index]
+    
+    if houses == 0:
+        if is_monopoly:
+            return base_rent * 2
+        return base_rent
+    elif houses == 1:
+        return base_rent * 5
+    elif houses == 2:
+        return base_rent * 15
+    elif houses == 3:
+        return base_rent * 40
+    elif houses == 4:
+        return base_rent * 80
+    elif houses == 5:  # Отель
+        return base_rent * 125
+    
+    return base_rent
 
-@dp.callback_query(F.data.startswith("leave_game_"))
-async def leave_game(c: types.CallbackQuery):
-    """Выход из игры"""
+# --- ЗАПУСК СЕРВЕРА ---
+def run_flask_server():
+    """Запуск Flask сервера"""
     try:
-        chat_id = int(c.data.split("_")[2])
-        
-        if chat_id not in WAITING_GAMES:
-            await c.answer("⚠️ Игра не найдена", show_alert=True)
-            return
-        
-        game = WAITING_GAMES[chat_id]
-        user_id = c.from_user.id
-        
-        # Удаляем игрока из списка
-        game["players"] = [p for p in game["players"] if p["id"] != user_id]
-        
-        # Если игроков не осталось, удаляем игру
-        if not game["players"]:
-            del WAITING_GAMES[chat_id]
-            await c.message.edit_text("❌ Игра отменена - все игроки вышли")
-            await c.answer("Игра отменена")
-            return
-        
-        # Если вышел создатель, назначить нового создателя
-        if user_id == game["creator_id"]:
-            game["creator_id"] = game["players"][0]["id"]
-            game["creator_name"] = game["players"][0]["name"]
-        
-        players_text = "👥 <b>Игроки в ожидании:</b>\n"
-        for player in game["players"]:
-            players_text += f"• {player['name']}"
-            if player.get('username'):
-                players_text += f" (@{player['username']})"
-            players_text += "\n"
-        
-        is_creator = (c.from_user.id == game["creator_id"])
-        
-        await c.message.edit_text(
-            f"🎮 <b>Сбор игроков начат!</b>\n"
+        logger.info(f"🌐 Flask сервер запускается на 0.0.0.0:{PORT}")
+        app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+    except Exception as e:
+        logger.error(f"❌ Ошибка Flask сервера: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    # Только для тестирования Flask части
+    print("🚀 Запуск только Flask части...")
+    run_flask_server()
+
