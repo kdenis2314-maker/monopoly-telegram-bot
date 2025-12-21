@@ -1,34 +1,27 @@
-import os
-import asyncio
-import random
+import os, asyncio, random
 from threading import Thread
 from flask import Flask, request, render_template_string
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from database import init_db, add_player, add_chat
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from database import init_db, add_chat, get_all_chats
 
-# --- КОНФИГУРАЦИЯ ---
+# --- КОНФИГ ---
 TOKEN = os.getenv("BOT_TOKEN")
-# Если BOT_TOKEN не задан в Render, бот выдаст ошибку при запуске
-if not TOKEN:
-    raise ValueError("ОШИБКА: BOT_TOKEN не установлен в Environment Variables!")
-
-DEV_ID = "@Whylovely05"
-START_DATE = "21.12.2025"
-PORT = int(os.environ.get("PORT", 8083)) # Тот самый порт 8083
-
+DEV_TAG = "@Whylovely05"
+PORT = int(os.environ.get("PORT", 8083))
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
-# Детальная карта (список)
-MAP_DATA = [
-    "🚀 СТАРТ", "🏠 Житная", "🎁 Казна", "🏠 Нагатинская", "💰 Налог",
-    "🚂 Рижская ж/д", "🏠 Варшавское", "❓ Шанс", "🏠 Огородный", "🏠 Парковая",
-    "⚖️ Тюрьма", "🏠 Полянка", "⚡ Электро", "🏠 Сретенка", "🏠 Ростовская",
-    "🚂 Курская ж/д", "🏠 Рязанский", "🎁 Казна", "🏠 Вавилова", "🏠 Тверская",
-    "🎡 Отдых", "🏠 Щусева", "❓ Шанс", "🏠 Гоголевский", "🏠 Кутузовский"
+# Полная карта Монополии (детальный список)
+MAP = [
+    "🚀 СТАРТ", "🏠 Житная", "🎁 Казна", "🏠 Нагатинская", "💰 Налог", "🚂 Рижская ж/д",
+    "🏠 Варшавское", "❓ Шанс", "🏠 Огородный", "🏠 Парковая", "⚖️ Тюрьма", "🏠 Полянка",
+    "⚡ Электро", "🏠 Сретенка", "🏠 Ростовская", "🚂 Курская ж/д", "🏠 Рязанский",
+    "🎁 Казна", "🏠 Вавилова", "🏠 Тверская", "🎡 Отдых", "🏠 Щусева", "❓ Шанс",
+    "🏠 Гоголевский", "🏠 Кутузовский", "🚂 Казанская", "🏠 Бронная", "🏠 Сивцев",
+    "💧 Водоканал", "🏠 Арбат", "👮 В ТЮРЬМУ", "🏠 Новинский", "🏠 Маяковского"
 ]
 
 # --- ЛОГИКА БОТА ---
@@ -37,102 +30,98 @@ MAP_DATA = [
 async def cmd_start(message: types.Message):
     if message.chat.type != 'private': return
     kb = InlineKeyboardBuilder()
-    kb.row(types.InlineKeyboardButton(text="➕ Добавить в группу", 
-           url=f"https://t.me/{(await bot.get_me()).username}?startgroup=true"))
-    
-    text = (f"🤖 **Monopoly Killer Elite**\n\n"
-            f"📅 Запуск: {START_DATE}\n"
-            f"👨‍💻 Создатель: {DEV_ID}\n"
-            f"⚡ Порт сервера: {PORT}\n"
+    kb.row(types.InlineKeyboardButton(text="➕ Добавить в группу", url=f"https://t.me/{(await bot.get_me()).username}?startgroup=true"))
+    text = (f"🤖 **Monopoly Killer Bot**\n\n"
+            f"📅 Создан: 21.12.2025\n"
+            f"👨‍💻 Dev: {DEV_TAG}\n"
             f"✅ Статус: Online\n\n"
-            f"📍 *Добавь меня в чат, чтобы начать разнос!*")
+            f"⚠️ *Играть можно только в группе!*")
     await message.answer(text, reply_markup=kb.as_markup(), parse_mode="Markdown")
 
 @dp.message(Command("monopoly"))
 async def cmd_monopoly(message: types.Message):
     if message.chat.type == 'private': return
-    # Сохраняем чат в базу для тролль-меню
     add_chat(message.chat.id, message.chat.title)
     
     kb = InlineKeyboardBuilder()
-    kb.row(types.InlineKeyboardButton(text="🎲 Начать сбор", callback_data="lobby"))
-    kb.row(types.InlineKeyboardButton(text="🙈 Скрыть меню", callback_data="hide_ui"))
-    await message.answer(f"📦 **Хаб управления чатом {message.chat.title}**", reply_markup=kb.as_markup())
+    kb.row(types.InlineKeyboardButton(text="🎲 Сбор игроков", callback_data="lobby"))
+    kb.row(types.InlineKeyboardButton(text="👨‍💻 Девелопер", callback_data="dev_info"))
+    kb.row(types.InlineKeyboardButton(text="📜 Правила", callback_data="rules"))
+    kb.row(types.InlineKeyboardButton(text="❓ Как играть", callback_data="how_to"))
+    await message.answer(f"📍 **Меню Монополии в {message.chat.title}**\nНужна админка бота для работы!", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "lobby")
 async def lobby(call: types.CallbackQuery):
     kb = InlineKeyboardBuilder()
-    kb.row(types.InlineKeyboardButton(text="✅ Вступить", callback_data="join"))
-    kb.row(types.InlineKeyboardButton(text="🚀 СТАРТ", callback_data="start_game"))
-    await call.message.edit_text("⏳ **Ожидание игроков...**\nМинимум: 2 игрока.", reply_markup=kb.as_markup())
+    kb.row(types.InlineKeyboardButton(text="✅ Зайти", callback_data="join"),
+           types.InlineKeyboardButton(text="❌ Выйти", callback_data="leave"))
+    kb.row(types.InlineKeyboardButton(text="🚀 Начать игру", callback_data="run_game"))
+    await call.message.edit_text("⏳ **Сбор игроков (2+ человека)**\n\nСписок:\n1. @Player1\n2. Ожидание...", reply_markup=kb.as_markup())
 
-@dp.callback_query(F.data == "hide_ui")
+@dp.callback_query(F.data == "run_game")
+async def start_game(call: types.CallbackQuery):
+    # Механика: Порядок ходов
+    players = ["Игрок 1", "Игрок 2"]
+    random.shuffle(players)
+    order = "\n".join([f"{i+1}. {p}" for i, p in enumerate(players)])
+    
+    # Визуальная карта (список)
+    view = f"🎲 **Игра началась!**\n\n**Очередь:**\n{order}\n\n**КАРТА:**\n"
+    for i, name in enumerate(MAP[:15]): # Показываем часть карты для краткости
+        mark = "📍" if i == 0 else "▫️"
+        view += f"{mark} {name}\n"
+    
+    # Кнопки в чате + кнопка "Скрыть"
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="🎲 Бросить куб", callback_data="roll"))
+    kb.row(types.InlineKeyboardButton(text="🙈 Скрыть меню", callback_data="hide"))
+    
+    await call.message.answer(view, reply_markup=kb.as_markup())
+
+@dp.callback_query(F.data == "hide")
 async def hide_ui(call: types.CallbackQuery):
     await call.message.delete()
-    await call.answer("Меню скрыто 🙈")
+    await call.answer("Клавиатура скрыта. Используйте /monopoly для возврата.")
 
-# --- МОБИЛЬНАЯ АДМИНКА (ТРОЛЛЬ-МЕНЮ) ---
-
-HTML_TEMPLATE = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { background: #121212; color: #eee; font-family: sans-serif; padding: 20px; }
-        .card { background: #1e1e1e; border: 1px solid #333; padding: 20px; border-radius: 12px; }
-        input, textarea { width: 100%; padding: 12px; margin: 10px 0; background: #222; border: 1px solid #444; color: white; border-radius: 6px; }
-        button { width: 100%; padding: 15px; background: #ff3b3b; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-        .info { color: #00ff00; font-size: 0.9em; }
-    </style>
-</head>
-<body>
-    <h2>😈 KILLER CONTROL</h2>
-    <div class="card">
-        <p class="info">● Сервер активен на порту {{ port }}</p>
-        <p>Разработчик: {{ dev }}</p>
-        <hr style="border: 0.5px solid #333">
-        <h3>💬 ТРОЛЛЬ-МЕНЮ</h3>
-        <form method="POST" action="/troll">
-            <input name="chat_id" placeholder="ID Группы (например, -100...)" required>
-            <textarea name="msg" placeholder="Текст сообщения от бота..." required></textarea>
-            <button type="submit">ОТПРАВИТЬ В ЧАТ</button>
-        </form>
-    </div>
-</body>
-</html>
-'''
+# --- МОБИЛЬНЫЙ САЙТ (АДМИНКА + ТРОЛЛЬ-МЕНЮ) ---
 
 @app.route('/')
-def admin_page():
-    return render_template_string(HTML_TEMPLATE, port=PORT, dev=DEV_ID)
+def admin():
+    chats = get_all_chats()
+    chat_options = "".join([f"<option value='{c[0]}'>{c[1]}</option>" for c in chats])
+    return render_template_string('''
+    <body style="background:#111; color:white; font-family:sans-serif; padding:20px;">
+        <h2 style="color:red;">😈 KILLER PANEL</h2>
+        <div style="background:#222; padding:15px; border-radius:10px;">
+            <p>Бот: <span style="color:lime;">РАБОТАЕТ ✅</span></p>
+            <p>Порт: {{ port }}</p>
+        </div>
+        <h3>👤 ТРОЛЛЬ-МЕНЮ</h3>
+        <form method="POST" action="/troll">
+            <select name="chat_id" style="width:100%; padding:10px; margin-bottom:10px; background:#333; color:white;">
+                {{ options|safe }}
+            </select>
+            <textarea name="text" placeholder="Написать от лица бота..." style="width:100%; height:80px; background:#333; color:white; border-radius:5px;"></textarea>
+            <button style="width:100%; padding:15px; background:red; color:white; border:none; margin-top:10px; font-weight:bold;">ОТПРАВИТЬ</button>
+        </form>
+    </body>
+    ''', port=PORT, options=chat_options)
 
 @app.route('/troll', methods=['POST'])
-def troll_action():
-    chat_id = request.form.get('chat_id')
-    msg = request.form.get('msg')
-    # Отправляем сообщение асинхронно через поток бота
-    asyncio.run_coroutine_threadsafe(bot.send_message(chat_id, f"📢 {msg}"), asyncio.get_event_loop())
-    return "🔥 Послание отправлено! <a href='/' style='color:white;'>Назад</a>"
+def troll_post():
+    cid = request.form.get('chat_id')
+    txt = request.form.get('text')
+    asyncio.run_coroutine_threadsafe(bot.send_message(cid, f"📢 {txt}"), asyncio.get_event_loop())
+    return "✅ Улетело! <a href='/'>Назад</a>"
 
-# --- СИСТЕМА ЗАПУСКА ---
-
+# --- ЗАПУСК ---
 def run_flask():
-    # Flask будет слушать порт 8083 (или тот, что в PORT)
     app.run(host="0.0.0.0", port=PORT)
 
-async def main_bot():
+async def main():
     init_db()
-    # Запуск веб-сервера в отдельном потоке
-    Thread(target=run_flask, daemon=True).start()
-    
-    print(f"✅ Сервер Flask на порту {PORT} запущен")
-    print("✅ Бот активен")
-    
+    Thread(target=run_web, daemon=True).start()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main_bot())
-    except (KeyboardInterrupt, SystemExit):
-        print("Бот выключен.")
+    asyncio.run(main())
