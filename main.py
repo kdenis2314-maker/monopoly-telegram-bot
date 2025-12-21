@@ -436,4 +436,48 @@ async def leave_game(c: types.CallbackQuery):
             return
         
         game = WAITING_GAMES[chat_id]
-   
+        user_id = c.from_user.id
+        
+        # Удаляем игрока из списка
+        game["players"] = [p for p in game["players"] if p["id"] != user_id]
+        
+        # Если игроков не осталось, удаляем игру
+        if not game["players"]:
+            del WAITING_GAMES[chat_id]
+            await c.message.edit_text("❌ Игра отменена - все игроки вышли")
+            await c.answer("Игра отменена")
+            return
+        
+        # Если вышел создатель, назначить нового создателя
+        if user_id == game["creator_id"]:
+            game["creator_id"] = game["players"][0]["id"]
+            game["creator_name"] = game["players"][0]["name"]
+        
+        players_text = "👥 <b>Игроки в ожидании:</b>\n"
+        for player in game["players"]:
+            players_text += f"• {player['name']}"
+            if player.get('username'):
+                players_text += f" (@{player['username']})"
+            players_text += "\n"
+        
+        await c.message.edit_text(
+            f"🎮 <b>Сбор игроков начат!</b>\n"
+            f"Создатель: {game['creator_name']}\n\n"
+            f"{players_text}\n"
+            f"✅ Нажмите 'Присоединиться' чтобы войти в игру\n"
+            f"🚪 'Выйти из игры' - чтобы покинуть лобби\n"
+            f"▶️ Создатель может начать игру когда все готовы",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardBuilder()
+                .button(text="✅ Присоединиться", callback_data=f"join_game_{chat_id}")
+                .button(text="🚪 Выйти", callback_data=f"leave_game_{chat_id}")
+                .button(text="▶️ Начать игру", callback_data=f"start_real_game_{chat_id}")
+                .adjust(2, 1)
+                .as_markup()
+        )
+        
+        await c.answer(f"🚪 Вы вышли из игры. Игроков осталось: {len(game['players'])}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в leave_game: {e}")
+        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
