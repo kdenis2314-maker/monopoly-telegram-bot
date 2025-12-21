@@ -6,112 +6,103 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types import ReplyKeyboardRemove, URLInputFile
 
-# --- [1] ЦИТАДЕЛЬ ПРИНЦА ---
-API_TOKEN = os.getenv("BOT_TOKEN") or "ТВОЙ_ТОКЕН_ЗДЕСЬ"
-PORT = int(os.environ.get("PORT", 8083))
+# --- [1] ЯДРО ПРИНЦА ---
+API_TOKEN = os.getenv("BOT_TOKEN") or "ТВОЙ_ТОКЕН"
+IS_ACTIVE = True 
+MAINTENANCE_MSG = "Темный принц правит код... ♥️"
 DEV_TAG = "@Whylovely05"
 
-# ГЛАВНЫЙ РЫЧАГ (True - играем, False - Принц правит код)
-IS_ACTIVE = True 
-MAINTENANCE_MSG = "Бот обновляется или сломался, простите за неудобства, Темный принц уже исправляет это ♥️♥️"
-
-BANNER = "┏━━━━━━━━━━━━━━━━━━┓\n┃  Monopoly AI Edition  ┃\n┗━━━━━━━━━━━━━━━━━━┛"
-MONOPOLY_IMG = "https://files.catbox.moe/o2809u.jpg"
-
-logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
-# --- [2] ПРОВЕРКА СТАТУСА ПРИНЦА (ФИЛЬТР) ---
-@dp.message(lambda m: not IS_ACTIVE)
-@dp.callback_query(lambda c: not IS_ACTIVE)
-async def maintenance_handler(event):
-    if isinstance(event, types.Message):
-        await event.answer(MAINTENANCE_MSG)
-    elif isinstance(event, types.CallbackQuery):
-        await event.answer(MAINTENANCE_MSG, show_alert=True)
+# --- [2] ЛОГИКА ТЮРЬМЫ И ШАНСА ---
+# Клетки Шанса: 2, 7, 17, 22, 33, 36
+CHANCE_CARDS = [
+    ("Налоговый возврат! +$150", 150),
+    ("Штраф за превышение скорости! -$50", -50),
+    ("Ты нашел заначку Принца! +$200", 200),
+    ("Оплата страховки... -$100", -100)
+]
 
-# --- [3] ИИ-ГОЛОС ---
-async def ai_say(event, name):
-    phrases = {
-        "roll": [f"🎲 {name} бросает вызов судьбе!", f"🎯 Кубики летят! Что скажет ИИ для {name}?", f"🎰 Время делать деньги, {name}!"],
-        "jail": [f"⛓ {name}, Темный Принц выписал тебе путевку в СИЗО.", f"👮‍♂️ {name} за решеткой. Тишина в камере!", f"🚔 Допрыгался, {name}. Тюрьма!"],
-        "start": [f"🚀 Экономическая бойня началась!", f"🔥 Погнали! Кто станет новым королем?", f"💰 Время грабить и богатеть!"]
-    }
-    return random.choice(phrases.get(event, ["Ход принят."]))
-
-# --- [4] БАЗА ДАННЫХ ---
+# --- [3] БАЗА ДАННЫХ (Расширенная) ---
 async def init_db():
-    async with aiosqlite.connect('monopoly_v5.db') as db:
-        await db.execute("CREATE TABLE IF NOT EXISTS players (chat_id int, user_id int, name text, balance int DEFAULT 1500, pos int DEFAULT 0, jail int DEFAULT 0, PRIMARY KEY(chat_id, user_id))")
-        await db.execute("CREATE TABLE IF NOT EXISTS awards (user_id int, title text, chat_id int, PRIMARY KEY(user_id, title))")
+    async with aiosqlite.connect('monopoly_v6.db') as db:
+        # jail_turns: сколько ходов осталось сидеть (0 - свободен)
+        await db.execute("""CREATE TABLE IF NOT EXISTS players (
+            chat_id int, user_id int, name text, 
+            balance int DEFAULT 1500, pos int DEFAULT 0, 
+            jail_turns int DEFAULT 0, PRIMARY KEY(chat_id, user_id))""")
+        await db.execute("CREATE TABLE IF NOT EXISTS property (chat_id int, cell_idx int, owner_id int, PRIMARY KEY(chat_id, cell_idx))")
         await db.commit()
 
-# --- [5] КЛАВИАТУРЫ ---
-def get_main_kb():
-    kb = ReplyKeyboardBuilder()
-    kb.button(text="🎲 Бросить кубик")
-    kb.button(text="🏠 Построить дом")
-    kb.button(text="📊 Мои активы")
-    kb.button(text="❌ Скрыть меню")
-    kb.adjust(2, 2)
-    return kb.as_markup(resize_keyboard=True)
+# --- [4] ИИ-ВЕДУЩИЙ (БЕЗ ПОДСКАЗОК) ---
+async def ai_comment(event, name):
+    phrases = {
+        "to_jail": [f"🚔 {name}, допрыгался! Тюрьмыч ждет тебя.", f"⛓ {name}, наручники сидят на тебе отлично. Присядь на 3 хода.", f"👮‍♂️ Опа, {name}, проедемте! Срок 3 хода."],
+        "out_jail": [f"🕊 {name} на свободе с чистой совестью!", f"🔓 {name} откинулся. С возвращением в бизнес!", f"🚶 {name} вышел по УДО. Попробуй не сесть снова."],
+        "auction": [f"🔨 ЛОТ НА ТОРГАХ! Кто даст больше?", f"📢 Аукцион! Ставки, господа!", f"💰 Жадность — это хорошо! Погнали торги!"],
+        "chance": [f"🎰 Судьба играет с {name}...", f"🃏 Что там в картах Шанса для {name}?", f"🎲 Рандом — бог Монополии! Смотрим..."]
+    }
+    return random.choice(phrases.get(event, ["Ход продолжается..."]))
 
-# --- [6] ХЕНДЛЕРЫ ---
-@dp.message(Command("monopoly"))
-async def cmd_monopoly(message: types.Message):
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Вступить", callback_data="join")
-    kb.button(text="▶️ Старт", callback_data="start")
-    kb.button(text="👨‍💻 Девелопер", callback_data="dev")
-    kb.adjust(2, 1)
-    
-    try:
-        await bot.send_photo(message.chat.id, photo=URLInputFile(MONOPOLY_IMG), 
-                             caption=f"{BANNER}\n\nПод присмотром Темного Принца. Готовы?", reply_markup=kb.as_markup())
-    except:
-        await message.answer(f"{BANNER}\n\nСтарт игры!", reply_markup=kb.as_markup())
-
-@dp.callback_query(F.data == "join")
-async def join(c: types.CallbackQuery):
-    await c.answer("Ты в деле! 💰")
-    async with aiosqlite.connect('monopoly_v5.db') as db:
-        await db.execute("INSERT OR IGNORE INTO players (chat_id, user_id, name) VALUES (?,?,?)", (c.message.chat.id, c.from_user.id, c.from_user.first_name))
-        await db.commit()
-
-@dp.callback_query(F.data == "start")
-async def start(c: types.CallbackQuery):
-    await c.answer()
-    await c.message.answer(await ai_say("start", ""), reply_markup=get_main_kb())
-
-@dp.callback_query(F.data == "dev")
-async def dev(c: types.CallbackQuery):
-    await c.answer(f"Создатель: {DEV_TAG}", show_alert=True)
-
+# --- [5] ОСНОВНАЯ ИГРОВАЯ ЛОГИКА ---
 @dp.message(F.text == "🎲 Бросить кубик")
-async def roll(m: types.Message):
-    async with aiosqlite.connect('monopoly_v5.db') as db:
-        res = await db.execute("SELECT pos, jail FROM players WHERE user_id=? AND chat_id=?", (m.from_user.id, m.chat.id))
+async def roll_dice(m: types.Message):
+    if not IS_ACTIVE: return await m.answer(MAINTENANCE_MSG)
+    
+    async with aiosqlite.connect('monopoly_v6.db') as db:
+        res = await db.execute("SELECT pos, balance, jail_turns FROM players WHERE user_id=? AND chat_id=?", (m.from_user.id, m.chat.id))
         p = await res.fetchone()
-        if not p: return await m.answer("Вступи в игру через /monopoly")
-        
-        await m.answer(await ai_say("roll", m.from_user.first_name))
+        if not p: return await m.answer("Вступи в игру! /monopoly")
+
+        # Проверка тюрьмы
+        if p[2] > 0:
+            new_jail = p[2] - 1
+            await db.execute("UPDATE players SET jail_turns=? WHERE user_id=?", (new_jail, m.from_user.id))
+            await db.commit()
+            return await m.answer(f"⛓ Ты в Тюрьмыче! Осталось сидеть: {new_jail} хода(ов).")
+
         dice = await m.answer_dice("🎲")
         await asyncio.sleep(3.5)
         
         new_pos = (p[0] + dice.dice.value) % 40
+        
+        # ЛОГИКА ТЮРЬМЫ (Клетка 30 - Отправляйся в тюрьму)
+        if new_pos == 30:
+            await db.execute("UPDATE players SET pos=10, jail_turns=3 WHERE user_id=?", (m.from_user.id,))
+            await db.commit()
+            return await m.answer(await ai_comment("to_jail", m.from_user.first_name))
+
+        # ЛОГИКА ШАНСА
+        if new_pos in [2, 7, 17, 22, 33, 36]:
+            txt, val = random.choice(CHANCE_CARDS)
+            await db.execute("UPDATE players SET balance = balance + ?, pos=? WHERE user_id=?", (val, new_pos, m.from_user.id))
+            await db.commit()
+            await m.answer(await ai_comment("chance", m.from_user.first_name))
+            return await m.answer(f"🃏 {txt}")
+
+        # ЛОГИКА АУКЦИОНА (Если клетка свободна)
+        # Здесь мы предлагаем: Купить или запустить Аукцион
         await db.execute("UPDATE players SET pos=? WHERE user_id=?", (new_pos, m.from_user.id))
         await db.commit()
-        await m.answer(f"📍 Ты на клетке {new_pos}.")
+        
+        kb = InlineKeyboardBuilder()
+        kb.button(text="💰 Купить", callback_data=f"buy_{new_pos}")
+        kb.button(text="🔨 Аукцион", callback_data=f"auc_{new_pos}")
+        await m.answer(f"📍 Ты на клетке {new_pos}. Что делаем?", reply_markup=kb.as_markup())
+
+# --- [6] АУКЦИОН ---
+@dp.callback_query(F.data.startswith("auc_"))
+async def start_auc(c: types.CallbackQuery):
+    await c.answer()
+    cell_idx = c.data.split("_")[1]
+    await c.message.answer(f"{await ai_comment('auction', '')}\nЛот: Клетка №{cell_idx}\nНачальная цена: $10. Пишите ставки в чат!")
 
 # --- [7] ЗАПУСК ---
-@app.route('/')
-def home(): return "AI Monopoly Online"
-
 async def main():
     await init_db()
-    Thread(target=lambda: app.run(host="0.0.0.0", port=PORT), daemon=True).start()
+    Thread(target=lambda: app.run(host="0.0.0.0", port=8083), daemon=True).start()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
