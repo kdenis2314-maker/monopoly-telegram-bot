@@ -259,4 +259,285 @@ async def show_assets(message: types.Message):
             return
         
         # Здесь должна быть логика получения активов из БД
-        # Временный заг
+        # Временный заглушка
+        assets_text = (
+            f"💰 <b>Ваши активы:</b>\n\n"
+            f"• Баланс: <b>1500$</b>\n"
+            f"• Позиция: <b>0 (Старт)</b>\n"
+            f"• Недвижимость: <b>0 объектов</b>\n"
+            f"• Дома: <b>0</b>\n"
+            f"• Отели: <b>0</b>\n\n"
+            f"📈 Для покупки недвижимости бросайте кубик!"
+        )
+        
+        await message.answer(assets_text, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в show_assets: {e}")
+        await message.answer(f"🤖 {MAINTENANCE_MSG}")
+
+# --- ОБРАБОТЧИКИ CALLBACK-ЗАПРОСОВ ---
+@dp.callback_query(F.data == "start_player_gathering")
+async def start_gathering(c: types.CallbackQuery):
+    """Начать сбор игроков"""
+    try:
+        chat_id = c.message.chat.id
+        user_id = c.from_user.id
+        
+        if chat_id in WAITING_GAMES:
+            await c.answer("⚠️ В этой группе уже идет сбор игроков!", show_alert=True)
+            return
+        
+        # Создаем новую игру в ожидании
+        WAITING_GAMES[chat_id] = {
+            "creator_id": user_id,
+            "creator_name": c.from_user.first_name,
+            "players": [{
+                "id": user_id,
+                "name": c.from_user.first_name,
+                "username": c.from_user.username,
+                "position": 0,
+                "balance": 1500
+            }],
+            "message_id": c.message.message_id,
+            "created_at": datetime.now()
+        }
+        
+        # Обновляем статистику
+        STATS["active_games"] = len(ACTIVE_GAMES) + len(WAITING_GAMES)
+        
+        # Формируем список игроков
+        players_text = "👥 <b>Игроки в ожидании:</b>\n"
+        for player in WAITING_GAMES[chat_id]["players"]:
+            players_text += f"• {player['name']}"
+            if player.get('username'):
+                players_text += f" (@{player['username']})"
+            players_text += "\n"
+        
+        await c.message.edit_text(
+            f"🎮 <b>Сбор игроков начат!</b>\n"
+            f"Создатель: {c.from_user.first_name}\n\n"
+            f"{players_text}\n"
+            f"✅ Нажмите 'Присоединиться' чтобы войти в игру\n"
+            f"🚪 'Выйти из игры' - чтобы покинуть лобби\n"
+            f"▶️ Создатель может начать игру когда все готовы",
+            parse_mode="HTML",
+            reply_markup=waiting_room_kb(chat_id, user_id, is_creator=True)
+        )
+        
+        await c.answer("🎮 Сбор игроков начат!")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в start_gathering: {e}")
+        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
+
+@dp.callback_query(F.data.startswith("join_game_"))
+async def join_game(c: types.CallbackQuery):
+    """Присоединение к игре"""
+    try:
+        chat_id = int(c.data.split("_")[2])
+        
+        if chat_id not in WAITING_GAMES:
+            await c.answer("⚠️ Игра не найдена или уже началась", show_alert=True)
+            return
+        
+        game = WAITING_GAMES[chat_id]
+        user_id = c.from_user.id
+        
+        # Проверяем, не в игре ли уже пользователь
+        for player in game["players"]:
+            if player["id"] == user_id:
+                await c.answer("✅ Вы уже в игре!")
+                return
+        
+        # Добавляем игрока
+        game["players"].append({
+            "id": user_id,
+            "name": c.from_user.first_name,
+            "username": c.from_user.username,
+            "position": 0,
+            "balance": 1500
+        })
+        
+        # Обновляем сообщение
+        players_text = "👥 <b>Игроки в ожидании:</b>\n"
+        for player in game["players"]:
+            players_text += f"• {player['name']}"
+            if player.get('username'):
+                players_text += f" (@{player['username']})"
+            players_text += "\n"
+        
+        is_creator = (user_id == game["creator_id"])
+        
+        await c.message.edit_text(
+            f"🎮 <b>Сбор игроков начат!</b>\n"
+            f"Создатель: {game['creator_name']}\n\n"
+            f"{players_text}\n"
+            f"✅ Нажмите 'Присоединиться' чтобы войти в игру\n"
+            f"🚪 'Выйти из игры' - чтобы покинуть лобби\n"
+            f"▶️ Создатель может начать игру когда все готовы",
+            parse_mode="HTML",
+            reply_markup=waiting_room_kb(chat_id, user_id, is_creator=is_creator)
+        )
+        
+        await c.answer(f"🎮 Вы присоединились! Игроков: {len(game['players'])}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в join_game: {e}")
+        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
+
+@dp.callback_query(F.data.startswith("leave_game_"))
+async def leave_game(c: types.CallbackQuery):
+    """Выход из игры"""
+    try:
+        chat_id = int(c.data.split("_")[2])
+        
+        if chat_id not in WAITING_GAMES:
+            await c.answer("⚠️ Игра не найдена", show_alert=True)
+            return
+        
+        game = WAITING_GAMES[chat_id]
+        user_id = c.from_user.id
+        
+        # Удаляем игрока
+        original_count = len(game["players"])
+        game["players"] = [p for p in game["players"] if p["id"] != user_id]
+        
+        # Если игроков не осталось
+        if not game["players"]:
+            del WAITING_GAMES[chat_id]
+            await c.message.edit_text("❌ Игра отменена - все игроки вышли")
+            await c.answer("Игра отменена")
+            return
+        
+        # Если вышел создатель, назначаем нового
+        if user_id == game["creator_id"]:
+            new_creator = game["players"][0]
+            game["creator_id"] = new_creator["id"]
+            game["creator_name"] = new_creator["name"]
+        
+        # Обновляем сообщение
+        players_text = "👥 <b>Игроки в ожидании:</b>\n"
+        for player in game["players"]:
+            players_text += f"• {player['name']}"
+            if player.get('username'):
+                players_text += f" (@{player['username']})"
+            players_text += "\n"
+        
+        is_creator = (c.from_user.id == game["creator_id"])
+        
+        await c.message.edit_text(
+            f"🎮 <b>Сбор игроков начат!</b>\n"
+            f"Создатель: {game['creator_name']}\n\n"
+            f"{players_text}\n"
+            f"✅ Нажмите 'Присоединиться' чтобы войти в игру\n"
+            f"🚪 'Выйти из игры' - чтобы покинуть лобби\n"
+            f"▶️ Создатель может начать игру когда все готовы",
+            parse_mode="HTML",
+            reply_markup=waiting_room_kb(chat_id, c.from_user.id, is_creator=is_creator)
+        )
+        
+        await c.answer(f"🚪 Вы вышли. Игроков: {len(game['players'])}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в leave_game: {e}")
+        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
+
+@dp.callback_query(F.data.startswith("start_real_game_"))
+async def start_real_game(c: types.CallbackQuery):
+    """Начать реальную игру"""
+    try:
+        chat_id = int(c.data.split("_")[3])
+        
+        if chat_id not in WAITING_GAMES:
+            await c.answer("⚠️ Игра не найдена", show_alert=True)
+            return
+        
+        game = WAITING_GAMES[chat_id]
+        
+        # Проверяем права создателя
+        if c.from_user.id != game["creator_id"]:
+            await c.answer("⚠️ Только создатель игры может её начать!", show_alert=True)
+            return
+        
+        # Проверяем количество игроков
+        if len(game["players"]) < 2:
+            await c.answer("⚠️ Нужно минимум 2 игрока для начала игры!", show_alert=True)
+            return
+        
+        # Переносим игру в активные
+        ACTIVE_GAMES[chat_id] = {
+            "players": game["players"],
+            "current_player": 0,
+            "started_at": datetime.now(),
+            "creator_id": game["creator_id"],
+            "creator_name": game["creator_name"],
+            "turn": 1
+        }
+        
+        # Удаляем из ожидающих
+        del WAITING_GAMES[chat_id]
+        
+        # Обновляем статистику
+        STATS["total_players"] += len(ACTIVE_GAMES[chat_id]["players"])
+        STATS["active_games"] = len(ACTIVE_GAMES)
+        
+        # Формируем список игроков
+        players_list = "\n".join([f"• {p['name']}" for p in ACTIVE_GAMES[chat_id]["players"]])
+        
+        # Отправляем сообщение о начале игры
+        await c.message.edit_text(
+            f"🎉 <b>Игра началась!</b>\n\n"
+            f"<b>Участники:</b>\n{players_list}\n\n"
+            f"💰 Стартовый баланс: <b>1500$</b>\n"
+            f"🎲 Первым ходит: <b>{ACTIVE_GAMES[chat_id]['players'][0]['name']}</b>\n"
+            f"🔄 Ход: <b>1</b>\n\n"
+            f"<i>Используйте меню ниже для управления игрой</i>",
+            parse_mode="HTML"
+        )
+        
+        # Отправляем игровое меню
+        first_player = ACTIVE_GAMES[chat_id]["players"][0]
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"🎮 <b>Игра началась!</b>\n\n"
+                 f"📢 <b>{first_player['name']}</b>, ваш ход первый!\n"
+                 f"Нажмите '🎲 Бросить кубик' чтобы сделать ход",
+            parse_mode="HTML",
+            reply_markup=game_main_kb()
+        )
+        
+        await c.answer("🎮 Игра началась!")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в start_real_game: {e}")
+        await c.answer(f"🤖 {MAINTENANCE_MSG}", show_alert=True)
+
+@dp.callback_query(F.data == "show_rules")
+async def show_rules(c: types.CallbackQuery):
+    """Показать правила игры"""
+    try:
+        rules_text = (
+            "📖 <b>Правила Monopoly Premium:</b>\n\n"
+            "1. 🏁 Каждый игрок начинает с <b>1500$</b> на позиции <b>Старт</b>\n"
+            "2. 🎲 По очереди бросайте кубик и передвигайтесь по полю\n"
+            "3. 🏠 При попадании на свободную клетку можете её купить\n"
+            "4. 💰 При попадании на чужую клетку платите аренду владельцу\n"
+            "5. 🎨 Собирайте наборы одного цвета для увеличения аренды\n"
+            "6. 🏘️ Стройте дома (до 4) и отели для увеличения доходов\n"
+            "7. 🏦 Цель - остаться последним непобанкротившимся игроком\n\n"
+            "🎯 <b>Особенности Premium версии:</b>\n"
+            "• 🌐 Web-статистика в реальном времени\n"
+            "• 🏆 Система достижений и наград\n"
+            "• 🤝 Поддержка торговли между игроками\n"
+            "• 💾 Автосохранение прогресса в БД\n"
+            "• 👥 Поддержка до 8 игроков одновременно\n\n"
+            "⚠️ <b>Важно:</b>\n"
+            "• Минимум 2 игрока для начала\n"
+            "• Используйте /hide чтобы скрыть меню\n"
+            "• Игра сохраняется автоматически"
+        )
+        
+        # Создаем клавиатуру для правил
+        kb = InlineKeyboardBuilder()
+        kb.button(text="◀️ Назад в меню", callback
